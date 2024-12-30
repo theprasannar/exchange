@@ -11,8 +11,6 @@ async function main() {
         const message = await redisClient.brPop('message', 0);
 
         if (message) {
-            console.log("main ~ message:", message)
-            
             try {
                 // Use object destructuring
                 const { element } = message; 
@@ -21,11 +19,15 @@ async function main() {
                 const { clientId, message: orderMessage } = parsedPayload;
         
                 const response = engine.process(parsedPayload);
+                engine.getUserBalances();
+
+                if (response) {
+                    await redisClient.publish(clientId, JSON.stringify(response));
+                } else {
+                    console.error("No response to publish for clientId:", clientId);
+                }
+                
         
-                await redisClient.publish(clientId, JSON.stringify({
-                    status: "success",
-                    data: response
-                }));
         
             } catch (error) {
                 console.error('Failed to process message:', message, error);

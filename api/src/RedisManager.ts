@@ -36,25 +36,28 @@ export class RedisManager {
             this.client.unsubscribe(clientId);
             reject(new Error('Timed out waiting for response on channel ' + clientId));
         }, timeOutMS) : null;
-
         this.client.subscribe(clientId, async (message) => {
+            console.log("Received message in subscribe callback:", message);
             let parsedMessage: any;
-
+        
             try {
                 parsedMessage = JSON.parse(message);
+                console.log("Parsed Message:", parsedMessage);
             } catch (error) {
-                console.error(`Invalid JSON message received on ${clientId}:`, message);
+                console.error(`Error parsing message from ${clientId}:`, message);
                 return;
             }
+        
             if (timer) clearTimeout(timer);
-
+        
             try {
                 await this.client.unsubscribe(clientId);
+                console.log(`Unsubscribed from ${clientId}`);
             } catch (error) {
                 console.error(`Error unsubscribing from ${clientId}:`, error);
             }
-
-            resolve(parsedMessage);
+        
+            resolve(parsedMessage); // Resolving the parsed message
         }).catch(error => {
             if (timer) clearTimeout(timer);
             console.error(`Failed to subscribe to ${clientId}:`, error);
@@ -76,5 +79,26 @@ export class RedisManager {
     private generateRandomClientId() {
         return Math.random().toString(36).substring(0, 12) + Math.random().toString(36).substring(0, 12);
     }
+
+    public async setUserBalance(userId: string, balance: any): Promise<void> {
+        await this.client.set(`balance:${userId}`, JSON.stringify(balance));
+    }
+    
+
+    public async initializeUserBalances() {
+        const initialBalances = {
+            user1: { BTC: { available: 1, locked: 0 }, USD: { available: 50000, locked: 0 } },
+            user2: { BTC: { available: 3, locked: 0 }, USD: { available: 100000, locked: 0 } },
+            user3: { BTC: { available: 0.5, locked: 0 }, USD: { available: 30000, locked: 0 } },
+            user4: { BTC: { available: 5, locked: 0 }, USD: { available: 0, locked: 0 } }
+        };
+    
+        for (const userId in initialBalances) {
+            //@ts-ignore
+            await this.client.set(`balance:${userId}`, JSON.stringify(initialBalances[userId]));
+        }
+        console.log('User balances initialized.');
+    }
+    
 
 }

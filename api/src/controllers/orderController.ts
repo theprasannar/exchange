@@ -19,6 +19,7 @@ export const createOrderController = async (req: Request, res: Response): Promis
       userId
     }
   }, 0);
+  console.log('trt',response)
   //@ts-ignore
   res.json(response.payload);
 };
