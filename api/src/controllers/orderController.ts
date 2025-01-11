@@ -1,5 +1,4 @@
 import { Request, Response } from 'express';
-import { enqueueOrder } from '../services/orderServices';
 import { RedisManager } from '../RedisManager';
 import { CREATE_ORDER } from '../types';
 

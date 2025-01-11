@@ -83,22 +83,7 @@ export class RedisManager {
     public async setUserBalance(userId: string, balance: any): Promise<void> {
         await this.client.set(`balance:${userId}`, JSON.stringify(balance));
     }
-    
 
-    public async initializeUserBalances() {
-        const initialBalances = {
-            user1: { BTC: { available: 1, locked: 0 }, USD: { available: 50000, locked: 0 } },
-            user2: { BTC: { available: 3, locked: 0 }, USD: { available: 100000, locked: 0 } },
-            user3: { BTC: { available: 0.5, locked: 0 }, USD: { available: 30000, locked: 0 } },
-            user4: { BTC: { available: 5, locked: 0 }, USD: { available: 0, locked: 0 } }
-        };
-    
-        for (const userId in initialBalances) {
-            //@ts-ignore
-            await this.client.set(`balance:${userId}`, JSON.stringify(initialBalances[userId]));
-        }
-        console.log('User balances initialized.');
-    }
     
 
 }

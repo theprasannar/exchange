@@ -8,12 +8,12 @@ export interface Order {
     userId: string;
 }
 
-export interface Fills {
+export interface Fill {
     price: string;
     quantity: number;
     tradeId: number;
-    otherUserId?: string;
-    markerOrderId?: string;
+    makerUserId?: string;
+    makerOrderId?: string;
 
 }
 export class OrderBook {
@@ -36,7 +36,7 @@ export class OrderBook {
     ticker(): string {
         return `${this.baseAssets}_${this.quoteAssets}`;
     }
-    addOrder(order: Order): { executedQty: number, fills: Fills[] } {
+    addOrder(order: Order): { executedQty: number, fills: Fill[] } {
         if (order.side === "buy") {
             const { executedQty, fills } = this.matchBid(order);
             order.filled = executedQty;
@@ -73,9 +73,9 @@ export class OrderBook {
 
 
 
-    matchBid(order: Order): { fills: Fills[], executedQty: number } {
+    matchBid(order: Order): { fills: Fill[], executedQty: number } {
         let executedQty = 0;
-        const fills: Fills[] = [];
+        const fills: Fill[] = [];
         for (let i = 0; i < this.asks.length; i++) {
             if (this.asks[i].price <= order.price && executedQty < order.quantity) {
                 const filledQty = Math.min(order.quantity - executedQty, this.asks[i].quantity);
@@ -86,8 +86,8 @@ export class OrderBook {
                     price: this.asks[i].price.toString(),
                     quantity: filledQty,
                     tradeId: this.lastTradeId++,
-                    otherUserId: this.asks[i].userId,
-                    markerOrderId: this.asks[i].orderId
+                    makerUserId: this.asks[i].userId,
+                    makerOrderId: this.asks[i].orderId
                 });
 
                 // Update the ask
@@ -104,8 +104,8 @@ export class OrderBook {
         }
         return { fills, executedQty };
     }
-    matchAsk(order: Order): { fills: Fills[], executedQty: number } {
-        const fills: Fills[] = [];
+    matchAsk(order: Order): { fills: Fill[], executedQty: number } {
+        const fills: Fill[] = [];
         let executedQty = 0;
 
         for (let i = 0; i < this.bids.length; i++) {
@@ -118,8 +118,8 @@ export class OrderBook {
                     price: this.bids[i].price.toString(),
                     quantity: filledQty,
                     tradeId: this.lastTradeId++,
-                    otherUserId: this.bids[i].userId,
-                    markerOrderId: this.bids[i].orderId
+                    makerUserId: this.bids[i].userId,
+                    makerOrderId: this.bids[i].orderId
                 });
 
                 // Update the bid
@@ -136,6 +136,61 @@ export class OrderBook {
         }
 
         return { fills, executedQty };
+    }
+
+    getDepth() {
+        const bids: [string, string][] = [];
+        const asks: [string, string][] = [];
+
+        //total accumulated bids and asks
+        const bidsObj: { [key : string]: number } = {};
+        const asksObj: { [key : string]: number } = {};
+
+        //Group by bids
+        for(let i=0;i <this.bids.length;i++) {
+            if(!bidsObj[this.bids[i].price]) {
+                bidsObj[this.bids[i].price] = 0; //bidsObj[100] = 0;
+            } 
+            bidsObj[this.bids[i].price] += this.bids[i].quantity;
+        }
+
+         //Group by asks
+         for(let i=0;i <this.asks.length;i++) {
+            if(!asksObj[this.asks[i].price]) {
+                asksObj[this.asks[i].price] = 0; //asksObj[100] = 0;
+            } 
+            asksObj[this.asks[i].price] += this.asks[i].quantity;
+        }
+
+        //sort the bids in desc
+        const sortedBids = Object.keys(bidsObj).sort((a,b)=> Number(b) - Number(a))
+        for(const price in sortedBids) {
+            bids.push([price, bidsObj[price].toString()]);
+        }
+        const sortedAsks = Object.keys(bidsObj).sort((a,b)=> Number(a) - Number(b))
+        for(const price in sortedAsks) {
+            asks.push([price, asksObj[price].toString()]);
+        }
+
+        return {asks,bids}
+    }
+
+    cancelBid(order : Order) {
+        let index = this.bids.findIndex(b=> b.orderId === order.orderId);
+        if(index !== 1) {
+            const price = this.bids[index].price;
+            this.bids.splice(index, 1);
+            return price
+        }
+    }
+
+    cancelAsk(order : Order) {
+        let index = this.asks.findIndex(a=> a.orderId === order.orderId);
+        if(index !== 1) {
+            const price = this.asks[index].price;
+            this.bids.splice(index, 1);
+            return price
+        }
     }
 
 }
