@@ -1,4 +1,4 @@
-import { TRADE_ADDED } from "./types"
+import { TRADE_ADDED } from "."
 
 export type DbMessage = {
     type : typeof TRADE_ADDED

@@ -1,4 +1,4 @@
-import { DbMessage } from './MessageToDatabase';
+import { DbMessage } from './types/MessageToDatabase';
 import { MessageToAPI } from './types/MessageToAPI';
 import { createClient, RedisClientType } from 'redis';
 import { WsMessage } from './types/MessageToWs';

@@ -1,7 +1,7 @@
 import { Fill, Order, OrderBook } from './orderBook';
-import { RedisManager } from './redisManager';
-import { TRADE_ADDED } from './types';
-import { MessageFromAPI } from './types/MessageFromAPI';
+import { RedisManager } from '../redisManager';
+import { TRADE_ADDED } from '../types';
+import { CANCEL_ORDER, CREATE_ORDER, GET_DEPTH, GET_OPEN_ORDERS, MessageFromAPI, ON_RAMP } from '../types/MessageFromAPI';
 
 export const BASE_CURRENCY = "INR";
 
@@ -34,8 +34,8 @@ export class Engine {
 
         // Add a sell order from user2
         btcInrOrderBook.addOrder({
-            price: 3000000, // Selling 1 BTC for 3,000,000 INR
-            quantity: 1,
+            price: 100, // Selling 1 BTC for 3,000,000 INR
+            quantity: 100,
             side: 'sell',
             orderId: 'order2',
             filled: 0,
@@ -47,7 +47,7 @@ export class Engine {
 
     process({ message, clientId }: { message: MessageFromAPI, clientId: string }) {
         switch (message.type) {
-            case "CREATE_ORDER":
+            case CREATE_ORDER:
                 try {
                     const { market, quantity, price, side, userId } = message.data;
                     const { executedQty, fills, orderId } = this.createOrder(market, quantity, price, side, userId)
@@ -71,18 +71,79 @@ export class Engine {
                     });
                 }
                 break;
-            case "CANCEL_ORDER": {
+            case CANCEL_ORDER: {
                 try {
                     const { orderId, market, } = message.data;
                     this.cancelOrder(orderId, market)
                 } catch (error) {
-                    console.log("Error while cancelling order", );
+                    console.log("Error while cancelling order",);
                     console.log(error);
                 }
             }
-            default:
-                console.error(`Unknown message type: ${message.type}`);
-                return null;
+                break;
+            case GET_OPEN_ORDERS:
+                try {
+                    const { market, userId } = message.data;
+                    // Check if a market was provided
+                    if (!market || typeof market !== "string") {
+                        throw new Error("Market not specified or invalid");
+                    }
+
+                    // Check if a userId was provided
+                    if (!userId || typeof userId !== "string") {
+                        throw new Error("User ID not specified or invalid");
+                    }
+
+                    const openOrderbook = this.orderBooks.find(o => o.ticker() === market);
+                    if (!openOrderbook) {
+                        throw new Error(`No orderbook found for market: ${market}`);
+                    }
+            
+                    // Get the open orders for the user
+                    const openOrders = openOrderbook.getOpenOrders(userId);
+            
+                    // Send the open orders back to the client
+                    RedisManager.getInstance().sendToApi(clientId, {
+                        type: "OPEN_ORDERS",
+                        payload: openOrders
+                    });
+
+                } catch (error) {
+                    console.error("Error getting open orders:", error);
+                }
+                break;
+            case ON_RAMP:
+                const userId = message.data.userId;
+                const amount = Number(message.data.amount);
+                this.onRamp(userId, amount);
+                break;
+            case GET_DEPTH:
+                try {
+                    const market = message.data.market;
+
+                    if (!market || typeof market !== "string") {
+                        throw new Error("Invalid or missing market parameter");
+                    }
+
+                    const orderBook = this.orderBooks.find(o => o.ticker() === market)
+                    if (!orderBook) {
+                        throw new Error(`No OrderBook found for ${market}`);
+                    }
+                    RedisManager.getInstance().sendToApi(clientId, {
+                        type: "DEPTH",
+                        payload: orderBook.getDepth()
+                    });
+                } catch (error) {
+                    console.log(error);
+                    RedisManager.getInstance().sendToApi(clientId, {
+                        type: "DEPTH",
+                        payload: {
+                            asks: [],
+                            bids: [],
+                        }
+                    });
+
+                }
         }
     }
 
@@ -171,9 +232,8 @@ export class Engine {
             this.balance.get(order.userId)[quoteAsset].locked -= leftoverLocked;
 
             if (price) {
-                this.sendDepthUpdates(price.toString(), market)
+                this.sendUpdatedDepthAt(price.toString(), market)
             }
-
 
         }
         if (order.side === "sell") {
@@ -188,7 +248,7 @@ export class Engine {
             this.balance.get(order.userId)[baseAsset].locked -= leftoverLocked;
 
             if (price) {
-                this.sendDepthUpdates(price.toString(), market)
+                this.sendUpdatedDepthAt(price.toString(), market)
             }
 
 
@@ -238,7 +298,7 @@ export class Engine {
 
     }
 
-    sendDepthUpdates(price: string, market: string) {
+    sendUpdatedDepthAt(price: string, market: string) {
         const orderBook = this.orderBooks.find(orderBook => orderBook.ticker() === market)
         if (!orderBook) {
             return;
@@ -277,6 +337,25 @@ export class Engine {
                 }
             });
         });
+    }
+
+    onRamp(userId: string, amount: number) {
+        if (amount <= 0) {
+            throw new Error('Amount should be grater than 0')
+        }
+        const userBalance = this.balance.get(userId);
+        if (!userBalance) {
+            this.balance.set(userId, {
+                [BASE_CURRENCY]: {
+                    available: amount,
+                    locked: 0
+                },
+
+            })
+        } else {
+            userBalance[BASE_CURRENCY].available += amount;
+        }
+
     }
 
 }

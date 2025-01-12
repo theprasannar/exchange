@@ -1,3 +1,4 @@
+import { Order } from "../trade/orderBook"
 
 export type MessageToAPI = {
     type: "DEPTH",
@@ -23,4 +24,7 @@ export type MessageToAPI = {
         executedQty: number,
         remainingQty: number
     }
+} | {
+    type: "OPEN_ORDERS",
+    payload: Order []
 }
