@@ -21,7 +21,7 @@ async function main() {
                 const response = engine.process(parsedPayload);
                 engine.getUserBalances();
 
-                if (response) {
+                if (response ?? false) {
                     await redisClient.publish(clientId, JSON.stringify(response));
                 } else {
                     console.error("No response to publish for clientId:", clientId);

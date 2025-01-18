@@ -1,6 +1,6 @@
 import { Fill, Order, OrderBook } from './orderBook';
 import { RedisManager } from '../redisManager';
-import { TRADE_ADDED } from '../types';
+import { ORDER_UPDATE, TRADE_ADDED } from '../types';
 import { CANCEL_ORDER, CREATE_ORDER, GET_DEPTH, GET_OPEN_ORDERS, MessageFromAPI, ON_RAMP } from '../types/MessageFromAPI';
 
 export const BASE_CURRENCY = "INR";
@@ -185,7 +185,11 @@ export class Engine {
 
         const { fills, executedQty } = orderbook.addOrder(order)
         this.updateBalance(userId, baseAsset, quoteAssets, side, fills, executedQty);
+
         this.createDbTrades(fills, market, userId)
+        this.updateDbOrders(order, executedQty, fills, market);
+        this.publisWsDepthUpdates(fills, price, side, market);
+        this.publishWsTrades(fills, userId, market);
         return { executedQty, fills, orderId: order.orderId };
 
 
@@ -339,6 +343,78 @@ export class Engine {
         });
     }
 
+    updateDbOrders(order: Order, executedQty: number, fills: Fill[], market:string) {
+        RedisManager.getInstance().pushMessage({
+            type: ORDER_UPDATE,
+            data: {
+                orderId: order.orderId,
+                executedQty: executedQty,
+                market: market,
+                price: order.price.toString(),
+                quantity: order.quantity.toString(),
+                side: order.side,
+            }
+        });
+    
+        fills.forEach(fill => {
+            RedisManager.getInstance().pushMessage({
+                type: ORDER_UPDATE,
+                data: {
+                    orderId: fill.makerOrderId!,
+                    executedQty: fill.quantity
+                }
+            });
+        });
+    }
+    publisWsDepthUpdates(fills: Fill[], price: string, side: "buy" | "sell", market: string) {
+        const orderbook = this.orderBooks.find(o => o.ticker() === market);
+        if (!orderbook) {
+            return;
+        }
+        const depth = orderbook.getDepth();
+        if (side === "buy") {
+            const updatedAsks = depth?.asks.filter(x => fills.map(f => f.price).includes(x[0].toString()));
+            const updatedBid = depth?.bids.find(x => x[0] === price);
+            console.log("publish ws depth updates")
+            RedisManager.getInstance().publishMessage(`depth@${market}`, {
+                stream: `depth@${market}`,
+                data: {
+                    a: updatedAsks,
+                    b: updatedBid ? [updatedBid] : [],
+                    e: "depth"
+                }
+            });
+        }
+        if (side === "sell") {
+           const updatedBids = depth?.bids.filter(x => fills.map(f => f.price).includes(x[0].toString()));
+           const updatedAsk = depth?.asks.find(x => x[0] === price);
+           console.log("publish ws depth updates")
+           RedisManager.getInstance().publishMessage(`depth@${market}`, {
+               stream: `depth@${market}`,
+               data: {
+                   a: updatedAsk ? [updatedAsk] : [],
+                   b: updatedBids,
+                   e: "depth"
+               }
+           });
+        }
+    }
+    publishWsTrades(fills: Fill[], market: string, userId: string) {
+        fills.forEach(fill => {
+            const isBuyerMaker = (fill.makerUserId === userId);
+            RedisManager.getInstance().publishMessage(`trade@${market}`,{
+                stream: `trade@${market}`,
+                data: {
+                    e: "trade",
+                    t: fill.tradeId,
+                    m: isBuyerMaker,
+                    p: fill.price,
+                    q: fill.quantity.toString(),
+                    s: market,
+                }
+            });
+        });
+    }
     onRamp(userId: string, amount: number) {
         if (amount <= 0) {
             throw new Error('Amount should be grater than 0')

@@ -1,0 +1,34 @@
+src/
+├── app/
+│   ├── layout.tsx              # Main layout
+│   ├── page.tsx                # Homepage
+│   └── trade/
+│       ├── [market]/
+│       │   └── page.tsx        # Dynamic trade page
+├── components/
+│   ├── trade/                  # Components related to the "Trade" page
+│   │   ├── Header.tsx
+│   │   ├── Chart.tsx
+│   │   ├── OrderBook.tsx
+│   │   ├── TradeHistory.tsx
+│   │   ├── OrderForm.tsx
+│   │   ├── Tabs.tsx
+│   └── common/                 # Reusable components across the site
+│       ├── Button.tsx
+│       ├── Modal.tsx
+│       ├── Input.tsx
+│       ├── Select.tsx
+├── styles/                     # Tailwind styles (if needed)
+│   └── globals.css
+├── hooks/                      # Custom React hooks
+│   ├── useWebSocket.ts
+│   ├── useOrderBook.ts
+│   └── useTradeHistory.ts
+├── utils/                      # Helper functions
+│   ├── formatPrice.ts
+│   ├── generateUUID.ts
+│   └── dateHelpers.ts
+├── types/                      # TypeScript type definitions
+│   ├── Trade.ts
+│   ├── Order.ts
+│   └── Chart.ts
