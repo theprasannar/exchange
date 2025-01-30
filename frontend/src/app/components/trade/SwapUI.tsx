@@ -4,95 +4,112 @@ import { useState } from "react";
 /**
  * Simple Swap UI with local state only. No real calls.
  */
+
 export function SwapUI({ market }: { market: string }) {
-  const [amount, setAmount] = useState("");
-  const [activeTab, setActiveTab] = useState("buy");
-  const [type, setType] = useState("limit");
+  const [activeTab, setActiveTab] = useState<"buy" | "sell">("buy");
+  const [type, setType] = useState<"limit" | "market">("limit");
 
   return (
-    <div>
-      <div className="flex flex-col">
-        <div className="flex flex-row h-[60px]">
-          <BuyButton activeTab={activeTab} setActiveTab={setActiveTab} />
-          <SellButton activeTab={activeTab} setActiveTab={setActiveTab} />
+    <div className="p-4 bg-[#0e0f14] h-full">
+      {/* Buy/Sell Tabs */}
+      <div className="flex">
+        <button
+          className={`flex-1 text-center py-3 ${
+            activeTab === "buy" ? "bg-green-900 text-green-500 border-b-2 border-green-500" : "text-gray-400 border-b border-gray-600"
+          }`}
+          onClick={() => setActiveTab("buy")}
+        >
+          Buy
+        </button>
+        <button
+          className={`flex-1 text-center py-3 ${
+            activeTab === "sell" ? "bg-red-900 text-red-500 border-b-2 border-red-500" : "text-gray-400 border-b border-gray-600"
+          }`}
+          onClick={() => setActiveTab("sell")}
+        >
+          Sell
+        </button>
+      </div>
+
+      {/* Limit/Market Selection */}
+      <div className="mt-4 flex gap-4">
+        <button
+          className={`py-2 px-6 rounded-lg ${
+            type === "limit" ? "bg-blue-600 text-white" : "bg-gray-700 text-gray-400"
+          }`}
+          onClick={() => setType("limit")}
+        >
+          Limit
+        </button>
+        <button
+          className={`py-2 px-6 rounded-lg ${
+            type === "market" ? "bg-blue-600 text-white" : "bg-gray-700 text-gray-400"
+          }`}
+          onClick={() => setType("market")}
+        >
+          Market
+        </button>
+      </div>
+
+      {/* Price Input */}
+      <div className="mt-4">
+        <label className="text-gray-400 text-sm">Price</label>
+        <div className="relative">
+          <input
+            type="text"
+            className="w-full h-12 bg-gray-900 border border-gray-700 rounded-lg text-right pr-12 text-xl text-white"
+            value="104,579.1"
+            readOnly
+          />
+          <div className="absolute right-3 top-3">
+            <img src="/images/usdc.webp" className="w-6 h-6" />
+          </div>
         </div>
-        <div className="flex flex-col gap-1">
-          <div className="px-3">
-            <div className="flex flex-row flex-0 gap-5">
-              <LimitButton type={type} setType={setType} />
-              <MarketButton type={type} setType={setType} />
-            </div>
+      </div>
+
+      {/* Quantity Input */}
+      <div className="mt-4">
+        <label className="text-gray-400 text-sm">Quantity</label>
+        <div className="relative">
+          <input
+            type="text"
+            className="w-full h-12 bg-gray-900 border border-gray-700 rounded-lg text-right pr-12 text-xl text-white"
+            value="0"
+            readOnly
+          />
+          <div className="absolute right-3 top-3">
+            <img src="/images/btc.webp" className="w-6 h-6" />
           </div>
-          <div className="flex flex-col px-3">
-            <div className="flex flex-col gap-3 text-baseTextHighEmphasis">
-              <div className="flex items-center justify-between flex-row">
-                <p className="text-xs font-normal text-baseTextMedEmphasis">Available Balance</p>
-                <p className="font-medium text-xs">36.94 USDC</p>
-              </div>
-              <div className="flex flex-col gap-2">
-                <p className="text-xs font-normal text-baseTextMedEmphasis">Price</p>
-                <div className="relative">
-                  <input
-                    step="0.01"
-                    placeholder="0"
-                    className="h-12 rounded-lg border-2 border-baseBorderLight bg-[var(--background)] pr-12 text-right text-2xl leading-9 placeholder-baseTextMedEmphasis focus:border-accentBlue"
-                    type="text"
-                    value="134.38"
-                    readOnly
-                  />
-                  <div className="flex flex-row absolute right-1 top-1 p-2">
-                    <img src="/usdc.webp" className="w-6 h-6" />
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div className="flex flex-col gap-2">
-              <p className="text-xs font-normal text-baseTextMedEmphasis">Quantity</p>
-              <div className="relative">
-                <input
-                  step="0.01"
-                  placeholder="0"
-                  className="h-12 rounded-lg border-2 border-baseBorderLight bg-[var(--background)] pr-12 text-right text-2xl leading-9 placeholder-baseTextMedEmphasis focus:border-accentBlue"
-                  type="text"
-                  value="123"
-                  readOnly
-                />
-                <div className="flex flex-row absolute right-1 top-1 p-2">
-                  <img src="/sol.webp" className="w-6 h-6" />
-                </div>
-              </div>
-              <div className="flex justify-end">
-                <p className="font-medium pr-2 text-xs text-baseTextMedEmphasis">≈ 0.00 USDC</p>
-              </div>
-              <div className="flex justify-center flex-row mt-2 gap-3">
-                <div className="flex items-center justify-center rounded-full px-4 py-1 text-xs cursor-pointer bg-baseBackgroundL2 hover:bg-baseBackgroundL3">25%</div>
-                <div className="flex items-center justify-center rounded-full px-4 py-1 text-xs cursor-pointer bg-baseBackgroundL2 hover:bg-baseBackgroundL3">50%</div>
-                <div className="flex items-center justify-center rounded-full px-4 py-1 text-xs cursor-pointer bg-baseBackgroundL2 hover:bg-baseBackgroundL3">75%</div>
-                <div className="flex items-center justify-center rounded-full px-4 py-1 text-xs cursor-pointer bg-baseBackgroundL2 hover:bg-baseBackgroundL3">Max</div>
-              </div>
-            </div>
-            <button
-              type="button"
-              className="font-semibold focus:outline-none h-12 rounded-xl text-base px-4 py-2 my-4 bg-greenPrimaryButtonBackground text-greenPrimaryButtonText"
-            >
-              Buy
-            </button>
-            <div className="flex justify-between mt-1">
-              <div className="flex items-center gap-2">
-                <input className="form-checkbox h-5 w-5" type="checkbox" />
-                <label className="text-xs">Post Only</label>
-              </div>
-              <div className="flex items-center gap-2">
-                <input className="form-checkbox h-5 w-5" type="checkbox" />
-                <label className="text-xs">IOC</label>
-              </div>
-            </div>
-          </div>
+        </div>
+      </div>
+
+      {/* Buy/Sell Button */}
+      <div className="mt-6">
+        <button
+          className={`w-full py-3 rounded-lg text-white font-bold ${
+            activeTab === "buy" ? "bg-green-600" : "bg-red-600"
+          }`}
+        >
+          {activeTab === "buy" ? "Buy" : "Sell"}
+        </button>
+      </div>
+
+      {/* Options */}
+      <div className="flex justify-between mt-4 text-gray-400 text-sm">
+        <div>
+          <input type="checkbox" id="postOnly" className="mr-2" />
+          <label htmlFor="postOnly">Post Only</label>
+        </div>
+        <div>
+          <input type="checkbox" id="ioc" className="mr-2" />
+          <label htmlFor="ioc">IOC</label>
         </div>
       </div>
     </div>
   );
 }
+
+
 
 function LimitButton({ type, setType }: { type: string; setType: any }) {
   return (

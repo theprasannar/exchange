@@ -2,7 +2,7 @@ import * as http from "http";
 import { WebSocketServer } from "ws";
 import { UserManager } from "./UserManager";
 
-const PORT = 3001;
+const PORT = 4001;
 
 const server = http.createServer();
 

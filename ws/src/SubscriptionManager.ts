@@ -28,7 +28,7 @@ export class SubscriptionManager {
         this.reverseSubscriptions.set(subscription, (this.reverseSubscriptions.get(subscription) || []).concat(userId));
 
         if(this.reverseSubscriptions.get(subscription)?.length === 1) {
-            this.redisClient.subscribe(subscription, this.redisCallBackHandler);
+            this.redisClient.subscribe(subscription, (message, channel) => this.redisCallBackHandler(message, channel));
         }
     }
 
@@ -41,6 +41,7 @@ export class SubscriptionManager {
         this.subscriptions.set(userId, subscriptions.filter(s => s !== subscription));
 
         let reverseSubscriptions = this.reverseSubscriptions.get(subscription);
+        console.log("unsubscribe ~ reverseSubscriptions:", reverseSubscriptions)
         if(reverseSubscriptions) {
                     // Remove the user from the subscription's user list
             this.reverseSubscriptions.set(subscription, reverseSubscriptions.filter(u => u !== userId));

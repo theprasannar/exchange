@@ -1,8 +1,10 @@
 import express from 'express';
-import { createOrderController } from '../controllers/orderController';
+import { createOrderController, getDepthController } from '../controllers/orderController';
 
 const router = express.Router();
 
-router.post('/', createOrderController)
+router.post('/', createOrderController);
+router.get('/depth/:market', getDepthController);
+
 
 export default router;

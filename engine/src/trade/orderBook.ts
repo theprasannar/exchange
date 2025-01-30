@@ -9,7 +9,7 @@ export interface Order {
 }
 
 export interface Fill {
-    price: string;
+    price: number;
     quantity: number;
     tradeId: number;
     makerUserId?: string;
@@ -34,9 +34,13 @@ export class OrderBook {
     }
 
     ticker(): string {
+        console.log(`${this.baseAssets}_${this.quoteAssets}`)
         return `${this.baseAssets}_${this.quoteAssets}`;
     }
     addOrder(order: Order): { executedQty: number, fills: Fill[] } {
+        console.log("Adding order:", order);
+    console.log("Before adding, Bids:", JSON.stringify(this.bids));
+    console.log("Before adding, Asks:", JSON.stringify(this.asks));
         if (order.side === "buy") {
             const { executedQty, fills } = this.matchBid(order);
             order.filled = executedQty;
@@ -139,45 +143,63 @@ export class OrderBook {
     }
 
     getDepth() {
+        console.log("Fetching market depth...");
+        console.log("Current Bids before processing:", JSON.stringify(this.bids));
+        console.log("Current Asks before processing:", JSON.stringify(this.asks));
+    
         const bids: [string, string][] = [];
         const asks: [string, string][] = [];
-
-        //total accumulated bids and asks
-        const bidsObj: { [key : string]: number } = {};
-        const asksObj: { [key : string]: number } = {};
-
-        //Group by bids
-        for(let i=0;i <this.bids.length;i++) {
-            if(!bidsObj[this.bids[i].price]) {
-                bidsObj[this.bids[i].price] = 0; //bidsObj[100] = 0;
-            } 
-            bidsObj[this.bids[i].price] += this.bids[i].quantity;
+    
+        const bidsObj: { [key: string]: number } = {};
+        const asksObj: { [key: string]: number } = {};
+    
+        for (let i = 0; i < this.bids.length; i++) {
+            if (this.bids[i]?.price !== undefined && this.bids[i]?.quantity !== undefined) {
+                const priceStr = this.bids[i].price.toString();
+                if (!bidsObj[priceStr]) bidsObj[priceStr] = 0;
+                bidsObj[priceStr] += this.bids[i].quantity;
+            } else {
+                console.error("Invalid bid entry:", this.bids[i]);
+            }
         }
-
-         //Group by asks
-         for(let i=0;i <this.asks.length;i++) {
-            if(!asksObj[this.asks[i].price]) {
-                asksObj[this.asks[i].price] = 0; //asksObj[100] = 0;
-            } 
-            asksObj[this.asks[i].price] += this.asks[i].quantity;
+    
+        for (let i = 0; i < this.asks.length; i++) {
+            if (this.asks[i]?.price !== undefined && this.asks[i]?.quantity !== undefined) {
+                const priceStr = this.asks[i].price.toString();
+                if (!asksObj[priceStr]) asksObj[priceStr] = 0;
+                asksObj[priceStr] += this.asks[i].quantity;
+            } else {
+                console.error("Invalid ask entry:", this.asks[i]);
+            }
         }
-
-        //sort the bids in desc
-        const sortedBids = Object.keys(bidsObj).sort((a,b)=> Number(b) - Number(a))
-        for(const price in sortedBids) {
+    
+        const sortedBids = Object.keys(bidsObj)
+            .filter(price => price !== 'undefined')
+            .sort((a, b) => Number(b) - Number(a));
+    
+        for (const price of sortedBids) {
             bids.push([price, bidsObj[price].toString()]);
         }
-        const sortedAsks = Object.keys(bidsObj).sort((a,b)=> Number(a) - Number(b))
-        for(const price in sortedAsks) {
+    
+        // Sorting asks in ascending order (lowest price first)
+        const sortedAsks = Object.keys(asksObj)
+            .filter(price => price !== 'undefined')
+            .sort((a, b) => Number(a) - Number(b));
+    
+        for (const price of sortedAsks) {
             asks.push([price, asksObj[price].toString()]);
         }
-
-        return {asks,bids}
+    
+        console.log("Processed Bids:", JSON.stringify(bids));
+        console.log("Processed Asks:", JSON.stringify(asks));
+    
+        return { asks, bids };
     }
+    
 
     cancelBid(order : Order) {
         let index = this.bids.findIndex(b=> b.orderId === order.orderId);
-        if(index !== 1) {
+        if(index !== -1) {
             const price = this.bids[index].price;
             this.bids.splice(index, 1);
             return price
@@ -186,7 +208,7 @@ export class OrderBook {
 
     cancelAsk(order : Order) {
         let index = this.asks.findIndex(a=> a.orderId === order.orderId);
-        if(index !== 1) {
+        if(index !== -1) {
             const price = this.asks[index].price;
             this.bids.splice(index, 1);
             return price

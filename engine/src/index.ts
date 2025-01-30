@@ -19,7 +19,6 @@ async function main() {
                 const { clientId, message: orderMessage } = parsedPayload;
         
                 const response = engine.process(parsedPayload);
-                engine.getUserBalances();
 
                 if (response ?? false) {
                     await redisClient.publish(clientId, JSON.stringify(response));

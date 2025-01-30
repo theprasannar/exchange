@@ -2,7 +2,7 @@ import { updateDepth } from "../store/depthSlice";
 import store from "../store/store";
 
 
-export const BASE_URL = 'http://localhost:3001';
+export const BASE_URL = 'http://localhost:4001';
 
 export class SignalingManager {
     private ws: WebSocket;
@@ -28,11 +28,6 @@ export class SignalingManager {
     }
 
     public init() {
-
-        const actionMap: Record<string, (payload: any) => void> = {
-            DEPTH: (payload) => store.dispatch(updateDepth(payload)),
-        };
-
         this.ws.onopen = () => {
             //Send the message from buffer
             this.initialized = true;
@@ -43,22 +38,33 @@ export class SignalingManager {
         }
         // Handle incoming WebSocket messages
         this.ws.onmessage = (event) => {
-            const msg = JSON.parse(event.data);
-            const handler = actionMap[msg.type]; // Find the appropriate handler
-            if (handler) {
-                handler(msg.payload); // Dispatch the Redux action
-            } else {
-                console.warn(`Unhandled WebSocket message type: ${msg.type}`);
+            const message = JSON.parse(event.data);
+            const type = message.type ?? message.data?.e;
+            if (!type) {
+              console.warn("No 'type' in WebSocket message:", message);
+              return;
+            }
+            if (this.callbacks[type]) {
+              this.callbacks[type].forEach(({ callback }) => {
+                callback(message);
+              });
             }
         };
+        this.ws.onerror = (err) => {
+            console.error("WebSocket error:", err);
+          };
+      
+          this.ws.onclose = () => {
+            console.warn("WebSocket closed.");
+          };
     }
 
     public onMessage(type: string, callback: (msg: any) => void) {
         if (!this.callbacks[type]) {
-            this.callbacks[type] = []; // Initialize callback array for the type
+          this.callbacks[type] = [];
         }
-        this.callbacks[type].push(callback); // Add the callback
-    }
+        this.callbacks[type].push(callback);
+      }
     
     public sendMessage(message: any) {
         const messageToSend = {
@@ -71,5 +77,20 @@ export class SignalingManager {
         }
         this.ws.send(JSON.stringify(message));
     }
+    public registerCallback(type: string, callback: (msg: any) => void, id: string): void {
+        if (!this.callbacks[type]) {
+          this.callbacks[type] = [];
+        }
+        this.callbacks[type].push({ callback, id });
+      }
+    
+      /**
+       * Remove a previously registered callback for a specific type + ID.
+       */
+      public deRegisterCallback(type: string, id: string): void {
+        if (this.callbacks[type]) {
+          this.callbacks[type] = this.callbacks[type].filter((item) => item.id !== id);
+        }
+      }
 }
 
