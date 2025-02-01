@@ -5,7 +5,7 @@ export type DbMessage = {
     data: {
         id: string,
         isBuyerMaker: boolean,
-        price: number,
+        price: string,
         quantity: string,
         quoteQuantity: string,
         timestamp: number,
@@ -15,9 +15,9 @@ export type DbMessage = {
     type: typeof ORDER_UPDATE,
     data: {
         orderId: string,
-        executedQty: number,
+        executedQty: string,
         market?: string,
-        price?: number,
+        price?: string,
         quantity?: string,
         side?: "buy" | "sell",
     }

@@ -1,30 +1,45 @@
 import { Order } from "../trade/orderBook"
 
+// External order type for display (used in OPEN_ORDERS output)
+export interface OrderDisplay {
+    orderId: string;
+    price: string;
+    quantity: string;
+    filled: string;
+    side: "buy" | "sell";
+    userId: string;
+  }
+  
+
+// Outgoing messages from Engine to API:
 export type MessageToAPI = {
-    type: "DEPTH",
-    payload: {
-        bids: [string, string][],
-        asks: [string, string][],
+      type: "DEPTH";
+      payload: {
+        bids: [string, string][];  
+        asks: [string, string][];
+      };
     }
-} | {
-    type: "ORDER_PLACED",
-    payload: {
-        orderId: string,
-        executedQty: number,
+  | {
+      type: "ORDER_PLACED";
+      payload: {
+        orderId: string;
+        executedQty: string;
         fills: {
-            price: string,
-            quantity: number,
-            tradeId: number
-        }[]
+          price: string;
+          quantity: string;
+          tradeId: number;
+        }[];
+      };
     }
-} | {
-    type: "ORDER_CANCELLED",
-    payload: {
-        orderId: string,
-        executedQty: number,
-        remainingQty: number
+  | {
+      type: "ORDER_CANCELLED";
+      payload: {
+        orderId: string;
+        executedQty: string;
+        remainingQty: string;
+      };
     }
-} | {
-    type: "OPEN_ORDERS",
-    payload: Order []
-}
+  | {
+      type: "OPEN_ORDERS";
+      payload: OrderDisplay[];
+    };

@@ -21,9 +21,10 @@ export class RedisManager {
         return this.instance;
     }
 
-    public sendToApi(clientId : string, message: MessageToAPI) {
+    public sendToApi(clientId: string, message: MessageToAPI) {
         this.client.publish(clientId, JSON.stringify(message));
     }
+    
 
     public pushMessage(message: DbMessage) {
         this.client.lPush("db_processor", JSON.stringify(message));

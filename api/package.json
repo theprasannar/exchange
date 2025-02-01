@@ -9,11 +9,13 @@
   "author": "",
   "license": "ISC",
   "devDependencies": {
+    "@types/big.js": "^6.2.2",
     "@types/express": "^5.0.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.7.2"
   },
   "dependencies": {
+    "big.js": "^6.2.2",
     "cors": "^2.8.5",
     "ioredis": "^5.4.1",
     "redis": "^4.7.0"

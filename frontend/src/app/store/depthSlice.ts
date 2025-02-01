@@ -1,6 +1,7 @@
 import { createAsyncThunk, createSlice, PayloadAction } from "@reduxjs/toolkit";
 import { getDepth } from "../lib/api"; // Assuming getDepth is correctly implemented
 import { SignalingManager } from "../utils/SignalingManager";
+import { atomicToBtc, atomicToUsdc } from "../utils/currency";
 
 type DepthState = {
   bids: Array<[string, string]>;
@@ -20,8 +21,17 @@ export const fetchDepthData = createAsyncThunk(
   async (market: string, { rejectWithValue }) => {
     try {
       const depth = await getDepth(market);
-      console.log('slice', depth);
-      return { bids: depth.bids, asks: depth.asks, price: depth.c || null };
+      return {
+        bids: depth.bids.map(([p, q]: [string, string]) => [
+          atomicToUsdc(BigInt(p)), // price in USDC
+          atomicToBtc(BigInt(q))     // quantity in BTC
+        ]),
+        asks: depth.asks.map(([p, q]: [string, string]) => [
+          atomicToUsdc(BigInt(p)),
+          atomicToBtc(BigInt(q))
+        ]),
+        price: depth.c ? atomicToUsdc(BigInt(depth.c)) : null,
+      };
     } catch (error) {
       return rejectWithValue(error);
     }
@@ -91,6 +101,7 @@ export const subscribeDepth = (market: string) => (dispatch: any) => {
   const callbackId = `Depth_${market}`;
 
   manager.registerCallback("DEPTH", (msg) => {
+    console.log('depdddth', msg);
     const data = msg.data ?? msg.payload;
     dispatch(
       updateDepth({

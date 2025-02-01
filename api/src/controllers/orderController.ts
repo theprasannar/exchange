@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { RedisManager } from '../RedisManager';
 import { CREATE_ORDER, GET_DEPTH } from '../types';
+import {  btcToAtomic, usdcToAtomic } from '../utils/currency';
 
 export const createOrderController = async (req: Request, res: Response): Promise<any> => {
   const { market, price, quantity, side, userId } = req.body;
@@ -8,12 +9,15 @@ export const createOrderController = async (req: Request, res: Response): Promis
   if (!market || !price || !side || !quantity) {
     return res.status(400).json({ error: 'Invalid order parameters' });
   }
+  const priceAtomic = usdcToAtomic(price); 
+  const quantityAtomic = btcToAtomic(quantity);
+  
   const response = await RedisManager.getInstance().sendAndAwait({
     type: CREATE_ORDER,
     data: {
       market,
-      price,
-      quantity,
+      price : priceAtomic.toString(),
+      quantity : quantityAtomic.toString(),
       side,
       userId
     }
