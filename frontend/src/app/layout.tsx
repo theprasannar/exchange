@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { Appbar } from "../app/components/trade/Appbar";
 import { Providers } from "./provider";
+import { Toaster } from "react-hot-toast";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -22,6 +23,7 @@ export default function RootLayout({
       <Providers> {/* Wrap your app in the Redux Provider */}
           <Appbar />
           {children}
+          <Toaster position="top-right" reverseOrder={false} />
         </Providers>
       </body>
     </html>

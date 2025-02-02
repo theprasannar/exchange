@@ -70,7 +70,6 @@ addOrder(order: Order): { executedQty: bigint; fills: Fill[] } {
         }
 
         // Otherwise, reduce quantity by what was executed
-        order.quantity = order.quantity - executedQty;
         this.bids.push(order);
         return { executedQty, fills };
     } else if (order.side === "sell") {
@@ -81,7 +80,6 @@ addOrder(order: Order): { executedQty: bigint; fills: Fill[] } {
             return { executedQty, fills };
         }
 
-        order.quantity = order.quantity - executedQty;
         this.asks.push(order);
         return { executedQty, fills };
     }
@@ -126,11 +124,14 @@ private matchBid(order: Order): { fills: Fill[]; executedQty: bigint } {
 
                 // If that ask is fully filled, remove it
                 if (this.asks[i].filled === this.asks[i].quantity) {
+                    const removedPrice = this.asks[i].price;
                     this.asks.splice(i, 1);
                     i--; // Adjust loop index after removal
+                    
                 }
             }
         }
+
 
         // If we've matched the entire buy order, break
         if (executedQty >= order.quantity) {
@@ -185,55 +186,49 @@ private matchAsk(order: Order): { fills: Fill[]; executedQty: bigint } {
 
  // orderBook.ts
 
- public getDepth(): { bids: [string, string][]; asks: [string, string][]; } {
-    const bidsObj: { [price: string]: bigint } = {};
-    const asksObj: { [price: string]: bigint } = {};
-
-    // Aggregate open quantities for bids
+ public getDepth(): { bids: [string, string][]; asks: [string, string][] } {
+    const bidsObj: Record<string, bigint> = {};
+    const asksObj: Record<string, bigint> = {};
+  
+    // Aggregate bids
     for (let i = 0; i < this.bids.length; i++) {
-        const priceStr = this.bids[i].price.toString();
-        const openQty = this.bids[i].quantity - this.bids[i].filled;
-        if (!bidsObj[priceStr]) {
-            bidsObj[priceStr] = openQty;
-        } else {
-            bidsObj[priceStr] += openQty;
-        }
+      const priceStr = this.bids[i].price.toString();
+      const openQty = this.bids[i].quantity - this.bids[i].filled;
+      // If it's negative for some rounding reason, treat it as zero
+      bidsObj[priceStr] = openQty > 0n ? openQty : 0n;
     }
-
-    // Aggregate open quantities for asks
+  
+    // Aggregate asks
     for (let i = 0; i < this.asks.length; i++) {
-        const priceStr = this.asks[i].price.toString();
-        const openQty = this.asks[i].quantity - this.asks[i].filled;
-        if (!asksObj[priceStr]) {
-            asksObj[priceStr] = openQty;
-        } else {
-            asksObj[priceStr] += openQty;
-        }
+      const priceStr = this.asks[i].price.toString();
+      const openQty = this.asks[i].quantity - this.asks[i].filled;
+      asksObj[priceStr] = openQty > 0n ? openQty : 0n;
     }
-
-    // Sort bids descending
+  
+    // Sort bids descending (highest price first)
     const sortedBids = Object.keys(bidsObj)
-        .filter(price => price !== "undefined")
-        .sort((a, b) => BigInt(b) > BigInt(a) ? 1 : -1);
-
+      .filter(price => price !== "undefined")
+      .sort((a, b) => (BigInt(b) > BigInt(a) ? 1 : -1));
+  
+    // Convert to array of [priceStr, quantityStr]
     const bids: [string, string][] = sortedBids.map(price => [
-        price,
-        bidsObj[price].toString()
+      price,
+      bidsObj[price].toString(),
     ]);
-
-    // Sort asks ascending
+  
+    // Sort asks ascending (lowest price first)
     const sortedAsks = Object.keys(asksObj)
-        .filter(price => price !== "undefined")
-        .sort((a, b) => BigInt(a) < BigInt(b) ? -1 : 1);
-
+      .filter(price => price !== "undefined")
+      .sort((a, b) => (BigInt(a) < BigInt(b) ? -1 : 1));
+  
     const asks: [string, string][] = sortedAsks.map(price => [
-        price,
-        asksObj[price].toString()
+      price,
+      asksObj[price].toString(),
     ]);
-
+  
     return { bids, asks };
-
-}
+  }
+  
 
   
     cancelBid(order: Order) {

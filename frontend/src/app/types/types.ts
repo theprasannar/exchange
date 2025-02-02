@@ -38,3 +38,4 @@ export interface Ticker {
     "trades": string,
     "volume": string
 }
+

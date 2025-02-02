@@ -20,22 +20,16 @@ export class Engine {
  // Engine.ts
 
 constructor() {
-    const btcInrOrderBook = new OrderBook('BTC', [], [], 'USDC', 0, 0n);
-    this.orderBooks.push(btcInrOrderBook);
+  const btcUsdcOrderBook = new OrderBook('BTC', [], [], 'USDC', 0, 0n);
+  this.orderBooks.push(btcUsdcOrderBook);
 
-    // // Pre-seed user balances
-    for (let i = 1; i <= 11; i++) {
-        this.balance.set(`user${i}`, {
-            USDC: { available: 100000000n * BigInt(i), locked: 0n },    // Use bigint literals
-            BTC: {available: 100000000n * BigInt(i),  locked: 0n },
-        });
-    }
-
-    // // Create initial orders
-    // this.createOrder("BTC_USDC", "50000000", "100000000", "sell", "user1"); // 1 BTC @ ₹500000
-    // this.createOrder("BTC_USDC", "51000000", "50000000", "sell", "user2");
-    // this.createOrder("BTC_USDC", "48000000", "20000000", "buy", "user3");
-    // this.createOrder("BTC_USDC", "47000000", "40000000", "buy", "user4");
+  // Pre-seed balances for 50 users (adjust amounts if necessary)
+  for (let i = 1; i <= 50; i++) {
+    this.balance.set(`user${i}`, {
+      USDC: { available: 1000000000000n * BigInt(i), locked: 0n },
+      BTC: { available: 100000000000n * BigInt(i), locked: 0n },
+    });
+  }
 }
 
 // Engine.ts
@@ -396,6 +390,7 @@ cancelOrder(orderId: string, market: string, clientId: string) {
     if (!orderbook) return;
 
     const depth = orderbook.getDepth();
+    console.log('in publishWsDepthUpdates', depth);
     if (side === "buy") {
       // which asks were updated?
       const updatedAsks = depth.asks.filter((x) =>
@@ -403,6 +398,8 @@ cancelOrder(orderId: string, market: string, clientId: string) {
       );
       const updatedBid = depth.bids.find((x) => x[0] === price.toString());
 
+      console.log('updatedAsks', updatedAsks);
+      console.log('updatedBid', updatedBid);
       RedisManager.getInstance().publishMessage(`depth@${market}`, {
         stream: `depth@${market}`,
         data: {

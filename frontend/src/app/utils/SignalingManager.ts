@@ -82,6 +82,7 @@ export class SignalingManager {
           this.callbacks[type] = [];
         }
         this.callbacks[type].push({ callback, id });
+        console.log('all the callbacks', this.callbacks);
       }
     
       /**
