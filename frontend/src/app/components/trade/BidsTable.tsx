@@ -3,15 +3,15 @@ function Bid({ price, size, total, maxTotal }: { price: string, size: string, to
     const widthPercentage = (total / maxTotal) * 100;
 
     return (
-        <div className="relative flex justify-between text-xs gap-2">
+        <div className="relative flex justify-between text-sm gap-2 mb-1">
             <div className="text-green-500 z-10">
                 {parseFloat(price).toFixed(2)}
             </div>
             <div className="text-slate-300 z-10">
-                {parseFloat(size).toFixed(2)}
+                {parseFloat(size).toFixed(5)}
             </div>
             <div className="text-slate-300 z-10">
-                {total.toFixed(2)}
+                {total.toFixed(5)}
             </div>
             {/* Background bar for total volume */}
             <div 

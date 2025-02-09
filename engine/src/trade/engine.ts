@@ -1,8 +1,9 @@
 import { Fill, Order, OrderBook } from './orderBook';
 import { RedisManager } from '../redisManager';
 import { ORDER_UPDATE, TRADE_ADDED } from '../types';
-import { CANCEL_ORDER, CREATE_ORDER, GET_DEPTH, GET_OPEN_ORDERS, MessageFromAPI, ON_RAMP } from '../types/MessageFromAPI';
+import { CANCEL_ORDER, CREATE_ORDER, GET_DEPTH, GET_OPEN_ORDERS, GET_TICKER_DETAILS, MessageFromAPI, ON_RAMP } from '../types/MessageFromAPI';
 import { BTC_SCALE, mulDiv } from '../utils/currency';
+import { tickerAggregator } from './tickerAggregator';
 
 export const BASE_CURRENCY = "USDC";
 
@@ -44,10 +45,10 @@ process({ message, clientId }: { message: MessageFromAPI, clientId: string }) {
                     type: "ORDER_PLACED",
                     payload: {
                         orderId,
-                        executedQty: executedQty.toString(),    // Convert bigint to string
+                        executedQty: executedQty.toString(),
                         fills: fills.map(fill => ({
-                            price: fill.price.toString(),       // Convert bigint to string
-                            quantity: fill.quantity.toString(), // Convert bigint to string
+                            price: fill.price.toString(),
+                            quantity: fill.quantity.toString(),
                             tradeId: fill.tradeId
                         }))
                     }
@@ -55,11 +56,9 @@ process({ message, clientId }: { message: MessageFromAPI, clientId: string }) {
             } catch (error) {
                 console.log(error);
                 RedisManager.getInstance().sendToApi(clientId, {
-                    type: "ORDER_CANCELLED",
+                    type: "ORDER_REJECTED",
                     payload: {
-                        orderId: "",
-                        executedQty: "0",
-                        remainingQty: "0"
+                        reason: error instanceof Error ? error.message : 'Unknown error occurred'
                     }
                 });
             }
@@ -157,6 +156,48 @@ process({ message, clientId }: { message: MessageFromAPI, clientId: string }) {
                 });
             }
             break;
+        case GET_TICKER_DETAILS: 
+            try {
+              const {market} = message.data;
+
+              if (!market) {
+                  throw new Error("Invalid or missing market parameter");
+              }
+              const tickerData = tickerAggregator.getTicker(market);
+              if(!tickerData) {
+                RedisManager.getInstance().sendToApi(clientId, {
+                  type: "TICKER_UPDATE",
+                  payload: {
+                    currentPrice: "0",
+                    high: "0",
+                    low: "0",
+                    volume:"0",
+                  }
+                });
+                return
+              }
+              RedisManager.getInstance().sendToApi(clientId, {
+                type : "TICKER_UPDATE",
+                //@ts-ignore
+                payload: {
+                  currentPrice: tickerData?.last.toString(),
+                  high: tickerData?.high.toString(),
+                  low: tickerData?.low.toString(),
+                  volume: tickerData?.volume.toString()
+                }
+              })
+            } catch (error) {
+              console.error("Error fetching ticker data:", error);
+              RedisManager.getInstance().sendToApi(clientId, {
+                type: "TICKER_UPDATE",
+                payload: {
+                  currentPrice: "0",
+                  high: "0",
+                  low: "0",
+                  volume:"0",
+                }
+              });
+            }
     }
 }
 
@@ -194,6 +235,7 @@ createOrder(market: string, rawQuantity: string, rawPrice: string, side: "buy" |
     this.updateDbOrders(order, executedQty, fills, market);
     this.publishWsDepthUpdates(fills, price, side, market);
     this.publishWsTrades(fills, market, userId);
+    this.updateAndPublishTicker(fills, market);
     return { executedQty, fills, orderId: order.orderId };
 }
 
@@ -219,6 +261,7 @@ createOrder(market: string, rawQuantity: string, rawPrice: string, side: "buy" |
       userBalances[quoteAsset].available = userBalances[quoteAsset].available - totalCost;
       userBalances[quoteAsset].locked = userBalances[quoteAsset].locked + totalCost;
     } else {
+      console.log(userBalances[baseAsset].available, quantity);
       if (userBalances[baseAsset].available < quantity) {
         throw new Error(`Insufficient ${baseAsset} balance`);
       }
@@ -388,18 +431,26 @@ cancelOrder(orderId: string, market: string, clientId: string) {
   publishWsDepthUpdates(fills: Fill[], price: bigint, side: "buy" | "sell", market: string) {
     const orderbook = this.orderBooks.find((o) => o.ticker() === market);
     if (!orderbook) return;
-
+  
     const depth = orderbook.getDepth();
-    console.log('in publishWsDepthUpdates', depth);
+  
+    // Convert fill price and array lookups to string for matching
+    const priceStr = price.toString();
     if (side === "buy") {
       // which asks were updated?
       const updatedAsks = depth.asks.filter((x) =>
         fills.some((f) => f.price.toString() === x[0])
       );
-      const updatedBid = depth.bids.find((x) => x[0] === price.toString());
+      const updatedBid = depth.bids.find((x) => x[0] === priceStr);
+  
+      // NEW: If there's a fill at `priceStr` but no ask remains => fully removed
+      const fillAtPrice = fills.some((f) => f.price.toString() === priceStr);
+      const askStillExists = depth.asks.some(([p]) => p === priceStr);
+      if (fillAtPrice && !askStillExists) {
+        // Push zero-qty row so frontend knows to remove it
+        updatedAsks.push([priceStr, "0"]);
+      }
 
-      console.log('updatedAsks', updatedAsks);
-      console.log('updatedBid', updatedBid);
       RedisManager.getInstance().publishMessage(`depth@${market}`, {
         stream: `depth@${market}`,
         data: {
@@ -413,8 +464,15 @@ cancelOrder(orderId: string, market: string, clientId: string) {
       const updatedBids = depth.bids.filter((x) =>
         fills.some((f) => f.price.toString() === x[0])
       );
-      const updatedAsk = depth.asks.find((x) => x[0] === price.toString());
-
+      const updatedAsk = depth.asks.find((x) => x[0] === priceStr);
+  
+      // If there's a fill at `priceStr` but no bid remains => fully removed
+      const fillAtPrice = fills.some((f) => f.price.toString() === priceStr);
+      const bidStillExists = depth.bids.some(([p]) => p === priceStr);
+      if (fillAtPrice && !bidStillExists) {
+        updatedBids.push([priceStr, "0"]);
+      }
+  
       RedisManager.getInstance().publishMessage(`depth@${market}`, {
         stream: `depth@${market}`,
         data: {
@@ -425,7 +483,7 @@ cancelOrder(orderId: string, market: string, clientId: string) {
       });
     }
   }
-
+  
   publishWsTrades(fills: Fill[], market: string, userId: string) {
     for (const fill of fills) {
       const isBuyerMaker = fill.makerUserId === userId;
@@ -443,6 +501,29 @@ cancelOrder(orderId: string, market: string, clientId: string) {
     }
   }
 
+  updateAndPublishTicker(fills: Fill[], market: string, ) {
+  for (const fill of fills) {
+    // Update in-memory ticker aggregator
+    tickerAggregator.updateTicker(market, { price: fill.price, quantity: fill.quantity });
+    // Retrieve the latest ticker data
+    const tickerData = tickerAggregator.getTicker(market);
+    if (!tickerData) continue;
+    // Publish the ticker update immediately.  
+    RedisManager.getInstance().publishMessage(`ticker@${market}`, {
+      stream: "ticker",
+      data: {
+        c: tickerData.last.toString(),
+        h: tickerData.high.toString(),
+        l: tickerData.low.toString(),
+        v: tickerData.volume.toString(),
+        s: market,
+        id: tickerData.updatedAt, // use updatedAt timestamp
+        e: "ticker"
+      }
+    });
+  }
+
+  }
   onRamp(userId: string, amount: bigint) {
     if (amount <= 0) {
       throw new Error("Amount should be greater than 0");

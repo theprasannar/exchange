@@ -6,12 +6,8 @@ const BASE_URL = "http://localhost:4000/api/v1";
 
 
 export async function getTicker(market: string) : Promise<Ticker> {
-  const response = await getTickers();
-  const ticker = response.find((ticker) => ticker.symbol === market);
-   if(!ticker) {
-     throw new Error(`Ticker for market ${market} not found`);
-   }
-   return ticker;
+    const response = await axios.get(`${BASE_URL}/ticker/${market}`);
+    return response.data;
 }
 
 export async function createOrder(order: CreateOrder): Promise<CreateOrderResponse> {

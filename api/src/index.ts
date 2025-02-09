@@ -1,6 +1,8 @@
 import express from 'express';
 import cors from 'cors';
 import orderRoutes from './routes/orderRoutes'
+import tickerRoutes from './routes/tickerRoutes'
+
 
 const app = express();
 
@@ -15,6 +17,8 @@ app.use(express.json());
 const PORT = process.env.PORT || 4000;
 
 app.use('/api/v1/orders', orderRoutes);
+app.use('/api/v1/ticker', tickerRoutes);
+
 
 app.listen(PORT, ()=> {
     console.log(`listening on port ${PORT}`)

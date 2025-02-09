@@ -130,7 +130,7 @@ export const subscribeDepth = (market: string) => (dispatch: any) => {
   manager.sendMessage({ method: "SUBSCRIBE", params: [`depth@${market}`] });
 
   return () => {
-    manager.deRegisterCallback("DEPTH", callbackId);
+    manager.deRegisterCallback("depth", callbackId);
     manager.sendMessage({ method: "UNSUBSCRIBE", params: [`depth@${market}`] });
   };
 };

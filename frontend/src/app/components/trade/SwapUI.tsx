@@ -29,6 +29,7 @@ export function SwapUI({ market }: { market: string }) {
       toast.success("Order created successfully!");
       console.log(response);
     } catch (error) {
+      console.log(error);
       toast.dismiss(loadingToast);
       toast.error('Failed to create order. Please try again.');
       console.error("Error creating order:", error);

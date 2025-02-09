@@ -17,7 +17,7 @@ export interface Fill {
     makerOrderId?: string;
 }
 
-  
+
 // orderBook.ts
 
 export class OrderBook {

@@ -1,17 +1,18 @@
 function Ask({ price, size, total, maxTotal }: { price: string, size: string, total: number, maxTotal: number }) {
+    console.log(price,size,total,maxTotal);
     // Calculate width percentage for the background based on max total
     const widthPercentage = (total / maxTotal) * 100;
 
     return (
-        <div className="relative flex justify-between text-xs gap-2">
+        <div className="relative flex justify-between text-sm gap-2 mb-1">
             <div className="text-red-500 z-10">
                 {parseFloat(price).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </div>
             <div className="text-slate-300 z-10">
-                {parseFloat(size).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                {parseFloat(size).toLocaleString(undefined, { minimumFractionDigits: 5, maximumFractionDigits: 5 })}
             </div>
             <div className="text-slate-300 z-10">
-                {total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                {total.toLocaleString(undefined, { minimumFractionDigits: 5, maximumFractionDigits: 5 })}
             </div>
             {/* Background bar for total volume */}
             <div 

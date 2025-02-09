@@ -21,6 +21,7 @@ export class SubscriptionManager {
     }
 
     public subscribe(userId: string, subscription: string) {
+        console.log('subsxxcc' ,subscription)
         if(this.subscriptions.get(userId)?.includes(userId)) {
             return;
         }

@@ -54,7 +54,7 @@ function scheduleRandomOrder() {
   const orderData = generateRandomOrder();
   sendOrder(orderData);
   // Generate a random delay between 3000ms (3s) and 10000ms (10s)
-  const delay = randomInt(3000, 10000);
+  const delay = randomInt(1000, 2000);
   console.log(`[${new Date().toISOString()}] Next order in ${delay}ms`);
   setTimeout(scheduleRandomOrder, delay);
 }
