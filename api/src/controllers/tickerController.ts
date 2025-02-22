@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { RedisManager } from '../RedisManager';
-import { GET_TICKER_DATA } from '../types';
+import {  GET_TICKER_DETAILS } from '../types';
 
 export const getTickerController = async (req: Request, res: Response): Promise<any> => {
   const { market } = req.params;
@@ -11,7 +11,7 @@ export const getTickerController = async (req: Request, res: Response): Promise<
   try {
     // Send a message to the engine requesting ticker data
     const response = await RedisManager.getInstance().sendAndAwait({
-      type: GET_TICKER_DATA,
+      type: GET_TICKER_DETAILS,
       data: { market }
     }, 5000); // 5-second timeout
 

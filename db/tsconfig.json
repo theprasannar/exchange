@@ -1,6 +1,6 @@
 {
   "compilerOptions": {
-    "target": "ES6",
+    "target": "ES2020",  // Update this to ES2020 or later
     "module": "CommonJS",
     "rootDir": "./src",
     "outDir": "./dist",

@@ -1,5 +1,5 @@
 -- CreateEnum
-CREATE TYPE "OrderSide" AS ENUM ('BUY', 'SELL');
+CREATE TYPE "OrderSide" AS ENUM ('buy', 'sell');
 
 -- CreateEnum
 CREATE TYPE "OrderStatus" AS ENUM ('PENDING', 'PARTIALLY_FILLED', 'FILLED', 'CANCELLED');
@@ -99,3 +99,4 @@ ALTER TABLE "Trade" ADD CONSTRAINT "Trade_orderId_fkey" FOREIGN KEY ("orderId") 
 
 -- AddForeignKey
 ALTER TABLE "Trade" ADD CONSTRAINT "Trade_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE SET NULL ON UPDATE CASCADE;
+

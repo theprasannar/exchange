@@ -9,7 +9,7 @@ export const Appbar = () => {
   const router = useRouter();
 
   return (
-    <div className="text-white border-b border-slate-800">
+    <div className="text-white border-slate-800">
       <div className="flex justify-between items-center p-2">
         <div className="flex">
           <div

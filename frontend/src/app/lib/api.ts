@@ -23,11 +23,19 @@ export async function getDepth(market: string): Promise<Depth> {
     const response = await axios.get(`${BASE_URL}/orders/depth/${market}`);
     return response.data;
 }
-export async function getTrades(market: string): Promise<Trade[]> {
-    const response = await axios.get(`${BASE_URL}/trades/${market}`);
-    return response.data;
+export async function getTrades(market: string, limit?: number): Promise<Trade[]> {
+    const response = await axios.get(`${BASE_URL}/trades`, {
+        params: { symbol: market, limit }
+    });
+    return response.data.trades.map((trade: any) => ({
+        id: trade.tradeId,
+        isBuyerMaker: trade.isBuyerMaker,
+        price: trade.price,
+        quantity: trade.quantity,
+        quoteQuantity: trade.quoteQuantity,
+        timestamp: trade.timestamp
+    }));
 }
-
 export async function getKlines(market: string, interval: string, startTime: number, endTime: number): Promise<KLine[]> {
     const response = await axios.get(`${BASE_URL}/klines?symbol=${market}&interval=${interval}&startTime=${startTime}&endTime=${endTime}`);
     const data: KLine[] = response.data;

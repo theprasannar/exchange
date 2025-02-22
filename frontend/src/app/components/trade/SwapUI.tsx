@@ -36,9 +36,9 @@ export function SwapUI({ market }: { market: string }) {
     }
   }
   return (
-    <div className="p-4 bg-[#0e0f14] h-full">
+    <div className="p-4 rounded-lg">
       {/* Buy/Sell Tabs */}
-      <div className="flex bg-gray-800 rounded-lg">
+      <div className="flex rounded-lg">
         <button
           className={`flex-1 text-center py-3 ${
             activeTab === "buy" ? "bg-green-900/30 text-green-500 rounded-lg " : "text-gray-400"
@@ -49,7 +49,7 @@ export function SwapUI({ market }: { market: string }) {
         </button>
         <button
           className={`flex-1 text-center py-3 ${
-            activeTab === "sell" ? "bg-red-900/30 text-red-500" : "text-gray-400"
+            activeTab === "sell" ? "bg-red-900/30 text-red-500 rounded-lg" : "text-gray-400"
           }`}
           onClick={() => setActiveTab("sell")}
         >
@@ -83,7 +83,7 @@ export function SwapUI({ market }: { market: string }) {
         <div className="relative">
           <input
             type="text"
-            className="w-full h-12 bg-gray-900 border border-gray-700 rounded-lg text-right pr-12 text-xl text-white"
+            className="w-full h-12 bg-[#202127] bg-opacity-75 border border-gray-700 rounded-lg text-right pr-12 text-xl text-white"
             value={price}
             onChange={(e) => setPrice(e.target.value)}
           />
@@ -99,7 +99,7 @@ export function SwapUI({ market }: { market: string }) {
         <div className="relative">
           <input
             type="text"
-            className="w-full h-12 bg-gray-900 border border-gray-700 rounded-lg text-right pr-12 text-xl text-white"
+            className="w-full h-12 bg-[#202127] bg-opacity-75 border border-gray-700 rounded-lg text-right pr-12 text-xl text-white"
             value={quantity}
             onChange={(e) => setQuantity(e.target.value)}
           />

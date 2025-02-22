@@ -1,4 +1,4 @@
-import { CREATE_ORDER, CANCEL_ORDER, ON_RAMP, GET_DEPTH, GET_OPEN_ORDERS, GET_TICKER_DATA } from './index';
+import { CREATE_ORDER, CANCEL_ORDER, ON_RAMP, GET_DEPTH, GET_OPEN_ORDERS, GET_TICKER_DETAILS } from './index';
 
 export type MessageToEngine =
   | {
@@ -40,7 +40,7 @@ export type MessageToEngine =
       };
     }
   | {
-    type: typeof GET_TICKER_DATA;
+    type: typeof GET_TICKER_DETAILS;
     data: {
       market: string;
     };

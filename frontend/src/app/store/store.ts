@@ -2,12 +2,13 @@
 import { configureStore } from "@reduxjs/toolkit";
 import depthReducer from "./depthSlice";
 import tickerReducer from "./tickerSlice";
-// import tradesReducer from "./tradesSlice";
+import tradeReducer from "./tradeSlice";
 
 const store = configureStore({
   reducer: {
     depth: depthReducer,
-    ticker: tickerReducer
+    ticker: tickerReducer,
+    trade: tradeReducer,
   },
 });
 

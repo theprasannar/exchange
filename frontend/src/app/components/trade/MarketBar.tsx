@@ -23,7 +23,7 @@ export const MarketBar = ({ market }: { market: string }) => {
 
   return (
     <div>
-      <div className="flex items-center flex-row relative w-full overflow-hidden bg-customGray m-2">
+      <div className="flex items-center flex-row relative w-full overflow-hidden rounded-lg bg-customGray p-3 mt-2">
         <div className="flex items-center justify-between flex-row no-scrollbar overflow-x-auto pr-4">
           <TickerSymbol market={market} />
           <div className="flex items-center flex-row space-x-8 pl-4">
@@ -56,7 +56,7 @@ export const MarketBar = ({ market }: { market: string }) => {
 
 function TickerSymbol({ market }: { market: string }) {
   return (
-    <div className="flex h-[60px] shrink-0 space-x-4">
+    <div className="flex h-[50px] shrink-0 space-x-4 ml-6 bg-gray-800 rounded-lg">
       <div className="flex flex-row relative ml-2 -mr-4">
         <img
           alt="SOL Logo"

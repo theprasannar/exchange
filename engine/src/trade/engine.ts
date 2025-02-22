@@ -1,6 +1,6 @@
 import { Fill, Order, OrderBook } from './orderBook';
 import { RedisManager } from '../redisManager';
-import { ORDER_UPDATE, TRADE_ADDED } from '../types';
+import { ORDER_CREATE, ORDER_UPDATE, TRADE_ADDED } from '../types';
 import { CANCEL_ORDER, CREATE_ORDER, GET_DEPTH, GET_OPEN_ORDERS, GET_TICKER_DETAILS, MessageFromAPI, ON_RAMP } from '../types/MessageFromAPI';
 import { BTC_SCALE, mulDiv } from '../utils/currency';
 import { tickerAggregator } from './tickerAggregator';
@@ -213,6 +213,20 @@ createOrder(market: string, rawQuantity: string, rawPrice: string, side: "buy" |
     const quantity = BigInt(rawQuantity);  // Convert directly to bigint
     const price = BigInt(rawPrice);        // Convert directly to bigint
 
+    const localOrderId = crypto.randomUUID();
+
+    // Offload order persistence: Instead of calling Prisma here, we push a message.
+    RedisManager.getInstance().pushMessage({
+      type: ORDER_CREATE,
+      data: {
+        userId,
+        market,
+        side,
+        price: price.toString(),
+        quantity: quantity.toString(),
+        orderId: localOrderId,
+      },
+    });
     const baseAsset = market.split('_')[0];
     const quoteAsset = market.split('_')[1];
 
@@ -222,7 +236,7 @@ createOrder(market: string, rawQuantity: string, rawPrice: string, side: "buy" |
     const order: Order = {
         quantity: quantity,
         price: price,
-        orderId: crypto.randomUUID(),
+        orderId: localOrderId,
         filled: 0n,
         side,
         userId
@@ -236,7 +250,8 @@ createOrder(market: string, rawQuantity: string, rawPrice: string, side: "buy" |
     this.publishWsDepthUpdates(fills, price, side, market);
     this.publishWsTrades(fills, market, userId);
     this.updateAndPublishTicker(fills, market);
-    return { executedQty, fills, orderId: order.orderId };
+    //@ts-ignore
+    return { executedQty, fills, orderId: localOrderId};
 }
 
 

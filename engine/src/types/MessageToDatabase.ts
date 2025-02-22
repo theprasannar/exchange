@@ -1,4 +1,4 @@
-import { ORDER_UPDATE, TRADE_ADDED } from "."
+import { ORDER_CREATE, ORDER_UPDATE, TRADE_ADDED } from "."
 
 export type DbMessage = {
     type : typeof TRADE_ADDED
@@ -20,5 +20,15 @@ export type DbMessage = {
         price?: string,
         quantity?: string,
         side?: "buy" | "sell",
+    }
+} | {
+    type: typeof ORDER_CREATE,
+    data : {
+        userId: string,
+        market: string,
+        side: "buy" | "sell",
+        price: string,
+        quantity: string,
+        orderId: string,
     }
 }

@@ -44,9 +44,10 @@ model Order {
 }
 
 enum OrderSide {
-  BUY
-  SELL
+  buy
+  sell
 }
+
 
 enum OrderStatus {
   PENDING
@@ -95,12 +96,26 @@ model Ticker {
 model Kline {
   id         String   @id @default(uuid())
   market     String
+  interval   String   // e.g. "1m", "5m", "1h", "1d"
   open       BigInt
   high       BigInt
   low        BigInt
   close      BigInt
-  volume     BigInt
+  volume     BigInt    // base asset volume
   trades     Int
   startTime  DateTime
   endTime    DateTime
+  updatedAt  DateTime  @default(now()) @updatedAt
+  
+  @@unique([market, interval, startTime])
+}
+
+model AggregatorState {
+  id        String   @id @default(uuid())
+  market    String
+  interval  String
+  lastTime  DateTime // The last time we aggregated trades up to
+  updatedAt DateTime @default(now()) @updatedAt
+  
+  @@unique([market, interval])
 }

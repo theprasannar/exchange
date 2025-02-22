@@ -1,6 +1,12 @@
 // api/src/controllers/tradeController.ts
 import { Request, Response } from "express";
 import prisma from '../../../db/src/lib/prisma'
+import { atomicToBtc, atomicToUsdc } from "../utils/currency";
+
+const formatTime = (isoTimestamp: string): string => {
+  const date = new Date(isoTimestamp);
+  return date.toLocaleTimeString("en-US", { hour12: false });
+};
 
 export const getTrades = async (req: Request, res: Response): Promise<any> => {
   // Extract the query parameters:
@@ -24,9 +30,9 @@ export const getTrades = async (req: Request, res: Response): Promise<any> => {
       id: trade.id,
       tradeId: trade.tradeId,
       market: trade.market,
-      price: trade.price.toString(),
-      quantity: trade.quantity.toString(),
-      quoteQuantity: trade.quoteQuantity.toString(),
+      price: atomicToUsdc(trade.price),
+      quantity: atomicToBtc(trade.quantity),
+      quoteQuantity: atomicToBtc(trade.quoteQuantity),
       isBuyerMaker: trade.isBuyerMaker,
       timestamp: trade.timestamp,
       makerOrderId: trade.makerOrderId,

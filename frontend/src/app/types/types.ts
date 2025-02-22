@@ -11,14 +11,14 @@ export interface KLine {
     volume: string;
 }
 
-export interface Trade {
-    "id": number,
-    "isBuyerMaker": boolean,
-    "price": string,
-    "quantity": string,
-    "quoteQuantity": string,
-    "timestamp": number
-}
+export type Trade = {
+    id?: number;
+    isBuyerMaker: boolean;
+    price: string;
+    quantity: string;
+    quoteQuantity?: string;
+    timestamp: string;
+};
 
 export interface Depth {
     bids: [string, string][],
