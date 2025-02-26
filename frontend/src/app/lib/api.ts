@@ -36,8 +36,8 @@ export async function getTrades(market: string, limit?: number): Promise<Trade[]
         timestamp: trade.timestamp
     }));
 }
-export async function getKlines(market: string, interval: string, startTime: number, endTime: number): Promise<KLine[]> {
-    const response = await axios.get(`${BASE_URL}/klines?symbol=${market}&interval=${interval}&startTime=${startTime}&endTime=${endTime}`);
+export async function getKlines(market: string, interval: string, limit?: number): Promise<KLine[]> {
+    const response = await axios.get(`${BASE_URL}/klines?symbol=${market}&interval=${interval}&limit=${limit}`);
     const data: KLine[] = response.data;
-    return data.sort((x, y) => (Number(x.end) < Number(y.end) ? -1 : 1));
+    return data;
 }

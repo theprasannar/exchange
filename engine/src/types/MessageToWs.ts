@@ -31,8 +31,25 @@ export type TradeAddedMessage = {
         m: boolean,
         p: string,
         q: string,
-        s: string, // symbol
+        s: string,
+        T: number,
     }
 }
+
+export type KlineMessage = {
+    stream: string,
+    data: {
+        e: "kline",
+        o: string,
+        h: string,
+        l: string,
+        c: string,
+        v: string,
+        t: string,
+        sT: string,
+        eT: string,
+    }
+}
+
 
 export type WsMessage = TickerUpdateMessage | DepthUpdateMessage | TradeAddedMessage;

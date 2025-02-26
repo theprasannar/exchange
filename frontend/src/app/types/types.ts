@@ -1,22 +1,23 @@
-
 export interface KLine {
-    close: string;
-    end: string;
+    market: string;
+    interval: string;
+    open: string;
     high: string;
     low: string;
-    open: string;
-    quoteVolume: string;
-    start: string;
-    trades: string;
+    close: string;
     volume: string;
-}
-
+    trades: number;      // or string
+    startTime: number;
+    endTime: number;
+  }
+  
 export type Trade = {
     id?: number;
     isBuyerMaker: boolean;
     price: string;
     quantity: string;
     quoteQuantity?: string;
+    symbol?: string;
     timestamp: string;
 };
 
@@ -39,3 +40,15 @@ export interface Ticker {
     "volume": string
 }
 
+export interface Candle {
+    market?: string;
+    interval?: string;
+    open: string;
+    high: string;
+    low: string;
+    close: string;
+    volume: string;
+    trades: number;      // or string
+    startTime: number;
+    endTime: number;
+}

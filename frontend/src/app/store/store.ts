@@ -3,12 +3,14 @@ import { configureStore } from "@reduxjs/toolkit";
 import depthReducer from "./depthSlice";
 import tickerReducer from "./tickerSlice";
 import tradeReducer from "./tradeSlice";
+import klineReducer from "./klineSlice";
 
 const store = configureStore({
   reducer: {
     depth: depthReducer,
     ticker: tickerReducer,
     trade: tradeReducer,
+    kline: klineReducer,
   },
 });
 

@@ -15,6 +15,7 @@ export interface Fill {
     tradeId: number;
     makerUserId?: string;
     makerOrderId?: string;
+    timestamp: number;
 }
 
 
@@ -120,6 +121,7 @@ private matchBid(order: Order): { fills: Fill[]; executedQty: bigint } {
                     tradeId: this.lastTradeId++,
                     makerUserId: this.asks[i].userId,
                     makerOrderId: this.asks[i].orderId,
+                    timestamp: Date.now()
                 });
 
                 // If that ask is fully filled, remove it
@@ -160,11 +162,12 @@ private matchAsk(order: Order): { fills: Fill[]; executedQty: bigint } {
                 this.bids[i].filled += fillableQty;
 
                 fills.push({
-                    price: this.bids[i].price,                // Changed to bigint
-                    quantity: fillableQty,                    // bigint
+                    price: this.bids[i].price,               
+                    quantity: fillableQty,                   
                     tradeId: this.lastTradeId++,
                     makerUserId: this.bids[i].userId,
                     makerOrderId: this.bids[i].orderId,
+                    timestamp: Date.now()
                 });
 
                 // If that bid is fully filled, remove it

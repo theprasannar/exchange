@@ -4,3 +4,5 @@ import { getKlineData } from '../controllers/klineController';
 const router = express.Router();
 
 router.get('/', getKlineData)
+
+export default router;

@@ -5,6 +5,8 @@ import { addDays, addHours, addMinutes, addWeeks, startOfDay, startOfHour, start
 const INTERVAL_CONFIG: { interval: string, durationMinutes: number }[] = [
     { interval: "1m", durationMinutes: 1 },
     { interval: "5m", durationMinutes: 5 },
+    { interval: "15m", durationMinutes: 15 },
+    { interval: "30m", durationMinutes: 30 },
     { interval: "1h", durationMinutes: 60 },
     { interval: "1d", durationMinutes: 1440 },
     { interval: "1w", durationMinutes: 10080 },
@@ -120,12 +122,16 @@ async function aggregateInterval(market: string, interval: string, durationMinut
     }
 }
 
-function getBucketKey(timestamp: Date, durationMinutes: number): Date {
+export function getBucketKey(timestamp: Date, durationMinutes: number): Date {
     if (durationMinutes === 1) {
         return startOfMinute(timestamp);
     } else if (durationMinutes === 5) {
         return startOfXMinutes(timestamp, 5);
-    } else if (durationMinutes === 60) {
+    } else if (durationMinutes === 15) {
+        return startOfXMinutes(timestamp, 15);
+    } else if (durationMinutes === 30) {
+        return startOfXMinutes(timestamp, 30);
+    }  else if (durationMinutes === 60) {
         return startOfHour(timestamp);
     } else if (durationMinutes === 1440) {
         return startOfDay(timestamp);
@@ -135,7 +141,7 @@ function getBucketKey(timestamp: Date, durationMinutes: number): Date {
     return startOfXMinutes(timestamp, durationMinutes);
 }
 
-function computeBucketEnd(bucketStart: Date, durationMinutes: number): Date {
+export function computeBucketEnd(bucketStart: Date, durationMinutes: number): Date {
   if (durationMinutes === 1) return addMinutes(bucketStart, 1);
   if (durationMinutes === 5) return addMinutes(bucketStart, 5);
   if (durationMinutes === 60) return addHours(bucketStart, 1);
