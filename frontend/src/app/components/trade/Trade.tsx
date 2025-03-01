@@ -9,7 +9,6 @@ import { Trade } from "../../types/types";
 export function Trades({ market }: { market: string }) {
   const dispatch = useAppDispatch();
   const { trades } = useAppSelector((state: RootState) => state.trade);
-  console.log("Trades ~ trades:", trades)
 
   useEffect(() => {
     // 1) Fetch initial trades
@@ -51,7 +50,7 @@ function TradeRow({ trade }: { trade: Trade }) {
   const tradeColor = trade.isBuyerMaker ? 'text-red-500' : 'text-green-500';
   return (
     <div className={`flex justify-between text-xs py-1 border-b border-gray-800`}>
-      <span className={tradeColor} >{trade.price}</span>
+      <span className={tradeColor} >{parseFloat(trade.price).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
       <span className="text-white">{trade.quantity}</span>
       <span className="text-gray-400">{trade.timestamp}</span>
     </div>

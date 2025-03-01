@@ -29,6 +29,38 @@ import {
     ) {
       const chart = createLightWeightChart(ref, {
         autoSize: true,
+        timeScale: {
+          timeVisible: true,
+          secondsVisible: false,
+      
+
+          //@ts-ignore
+          tickMarkFormatter: (unixTimeInSeconds, tickMarkType, locale) => {
+            const date = new Date(unixTimeInSeconds * 1000);
+          
+            // Example: "2 Mar, 14:05" (24-hour time, no AM/PM)
+            return date.toLocaleString("en-IN", {
+              timeZone: "Asia/Kolkata",
+              day: "numeric",
+              month: "short",
+              hour: "2-digit",
+              minute: "2-digit",
+              hour12: false, // 24-hour clock
+            });
+          },
+          
+        },
+        localization: {
+          // This affects the crosshair tooltip (and can also affect the axis if no tickMarkFormatter is set)
+          timeFormatter: (unixTimeInSeconds: any) => {
+            const date = new Date(unixTimeInSeconds * 1000);
+            // Example format: "02/03/2025, 14:05:00"
+            return date.toLocaleString("en-IN", {
+              timeZone: "Asia/Kolkata",
+              hour12: false,
+            });
+          },
+        },
         overlayPriceScales: {
           ticksVisible: true,
           borderVisible: true,
@@ -57,6 +89,7 @@ import {
           textColor: "white",
         },
       });
+
       this.chart = chart;
       this.candleSeries = chart.addCandlestickSeries();
   
@@ -71,7 +104,8 @@ import {
       if (!this.lastUpdateTime) {
         this.lastUpdateTime = new Date().getTime();
       }
-  
+      console.log(" update ~ this.lastUpdateTime:", this.lastUpdateTime)
+
       this.candleSeries.update({
         time: (this.lastUpdateTime / 1000) as UTCTimestamp,
         close: updatedPrice.close,

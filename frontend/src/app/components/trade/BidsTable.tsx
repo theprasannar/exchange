@@ -4,10 +4,10 @@ function Bid({ price, size, total, maxTotal }: { price: string, size: string, to
 
     return (
         <div className="relative flex justify-between text-xs gap-2 mb-1">
-            <div className="text-green-500 z-10">
+            <div className="text-green-500 z-10 p-1">
                 {parseFloat(price).toFixed(2)}
             </div>
-            <div className="text-slate-300 z-10">
+            <div className="text-slate-300 z-10 p-1">
                 {parseFloat(size).toFixed(5)}
             </div>
             <div className="text-slate-300 z-10">

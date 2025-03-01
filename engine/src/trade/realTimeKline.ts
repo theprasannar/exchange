@@ -46,8 +46,8 @@ interface LiveCandle {
 // e.g. liveCandles["BTC_USDC"]["1m"] => LiveCandle
 const liveCandles: Record<string, Record<string, LiveCandle>> = {};
 
-const init = () => {
-    RedisManager.getInstance().subscribe('trade_added', (msg: string) => {
+export const initRealTimeKlineAggregator = () => {
+    RedisManager.getInstance().subscribe('trade_channel', (msg: string) => {
         const trade: TradeMessage = JSON.parse(msg);
 
         if (trade.type === 'TRADE_ADDED') {
@@ -148,7 +148,7 @@ function computeBucketEnd(bucketStart: Date, durationMinutes: number): Date {
     if (durationMinutes === 1) return addMinutes(bucketStart, 1);
     if (durationMinutes === 5) return addMinutes(bucketStart, 5);
     if (durationMinutes === 15) return addMinutes(bucketStart, 15);
-    if (durationMinutes === 30) return addMinutes(bucketStart, 20);
+    if (durationMinutes === 30) return addMinutes(bucketStart, 30);
     if (durationMinutes === 60) return addHours(bucketStart, 1);
     if (durationMinutes === 1440) return addDays(bucketStart, 1);
     if (durationMinutes === 10080) return addWeeks(bucketStart, 1);

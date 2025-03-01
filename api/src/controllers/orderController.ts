@@ -4,15 +4,22 @@ import { CREATE_ORDER, GET_DEPTH } from '../types';
 import {  btcToAtomic, usdcToAtomic } from '../utils/currency';
 
 export const createOrderController = async (req: Request, res: Response): Promise<any> => {
-  const { market, price, quantity, side, userId } = req.body;
+  const { market, price, quantity, side, userId, orderType } = req.body;
 
-  if (!market || !price || !side || !quantity) {
+  if (!market || !side || !quantity) {
     return res.status(400).json({ error: 'Invalid order parameters' });
   }
 
+  const finalOrderType = orderType || 'limit';
+
+  if (finalOrderType === 'limit' && !price) {
+    return res.status(400).json({ error: 'Price is required for limit orders' });
+  }
+
+
   try {
-    const priceAtomic = usdcToAtomic(price); 
     const quantityAtomic = btcToAtomic(quantity);
+    const priceAtomic = finalOrderType === 'limit' ? usdcToAtomic(price).toString() : '0';
     
     const response = await RedisManager.getInstance().sendAndAwait({
       type: CREATE_ORDER,
@@ -21,7 +28,8 @@ export const createOrderController = async (req: Request, res: Response): Promis
         price: priceAtomic.toString(),
         quantity: quantityAtomic.toString(),
         side,
-        userId
+        userId,
+        orderType: finalOrderType, // 'market' or 'limit'
       }
     }, 0);
 

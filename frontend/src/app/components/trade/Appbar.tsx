@@ -3,6 +3,7 @@
 import { usePathname, useRouter } from "next/navigation";
 import { PrimaryButton } from "../core/Button";
 import { SuccessButton } from "../core/Button";
+import Image from "next/image";
 
 export const Appbar = () => {
   const route = usePathname();
@@ -13,22 +14,23 @@ export const Appbar = () => {
       <div className="flex justify-between items-center p-2">
         <div className="flex">
           <div
-            className="text-xl pl-4 flex flex-col justify-center cursor-pointer text-white"
+            className="text-xxl pl-4 flex justify-center items-center cursor-pointer gap-2 text-white"
             onClick={() => router.push("/")}
           >
-            Exchange
+            <Image
+              src="/images/image.webp"
+              alt="BTC"
+              width={30}
+              height={30}
+              className="rounded-full"
+            />
+            <p>
+            Nexus
+            </p>
           </div>
           <div
             className={`text-sm pt-1 flex flex-col justify-center pl-8 cursor-pointer ${
-              route.startsWith("/markets") ? "text-white" : "text-slate-500"
-            }`}
-            onClick={() => router.push("/markets")}
-          >
-            Markets
-          </div>
-          <div
-            className={`text-sm pt-1 flex flex-col justify-center pl-8 cursor-pointer ${
-              route.startsWith("/trade") ? "text-white" : "text-slate-500"
+              route.startsWith("/trade") ? "text-slate-400" : "text-slate-500"
             }`}
             onClick={() => router.push("/trade/SOL_USDC")}
           >

@@ -58,20 +58,8 @@ function TickerSymbol({ market }: { market: string }) {
   return (
     <div className="flex h-[50px] shrink-0 space-x-4 ml-6 bg-gray-800 rounded-lg">
       <div className="flex flex-row relative ml-2 -mr-4">
-        <img
-          alt="SOL Logo"
-          loading="lazy"
-          decoding="async"
-          className="z-10 rounded-full h-6 w-6 mt-4"
-          src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTVvBqZC_Q1TSYObZaMvK0DRFeHZDUtVMh08Q&s"
-        />
-        <img
-          alt="USDC Logo"
-          loading="lazy"
-          decoding="async"
-          className="h-6 w-6 -ml-2 mt-4 rounded-full"
-          src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTVvBqZC_Q1TSYObZaMvK0DRFeHZDUtVMh08Q&s"
-        />
+          <img src="/images/btc.webp" className="z-10 rounded-full h-6 w-6 mt-4" />
+          <img src="/images/usdc.webp" className="h-6 w-6 -ml-2 mt-4 rounded-full" />
       </div>
       <button type="button" className="react-aria-Button">
         <div className="flex items-center justify-between flex-row cursor-pointer rounded-lg p-3 hover:opacity-80">

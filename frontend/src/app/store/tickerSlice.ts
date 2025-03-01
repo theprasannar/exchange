@@ -28,14 +28,14 @@ export const fetchTickerData = createAsyncThunk(
   async (market: string, { rejectWithValue }) => {
     try {
       const data = await getTicker(market);
+      console.log(" data:", data)
       // Assume data has properties c, h, l, v, s, id (all as strings/numbers) in atomic format
       return {
-        lastPrice: atomicToUsdc(BigInt(data.c)),
-        high: atomicToUsdc(BigInt(data.h)),
-        low: atomicToUsdc(BigInt(data.l)),
-        volume: data.v, // volume can remain as is or be converted if needed
-        symbol: data.s,
-        updatedAt: data.id,
+        lastPrice: atomicToUsdc(BigInt(data.currentPrice)),
+        high: atomicToUsdc(BigInt(data.high)),
+        low: atomicToUsdc(BigInt(data.low)),
+        volume: data.volume, // volume can remain as is or be converted if needed
+        symbol: data.symbol
       };
     } catch (error) {
       return rejectWithValue(error);
@@ -79,6 +79,7 @@ export const subscribeTicker = (market: string) => (dispatch: any) => {
   
   manager.registerCallback("ticker", (msg) => {
     const data = msg.data;
+    console.log(" manager.registerCallback ~ data:", data)
     dispatch(
       tickerSlice.actions.updateTicker({
         lastPrice: data.c ? atomicToUsdc(BigInt(data.c)) : "0",

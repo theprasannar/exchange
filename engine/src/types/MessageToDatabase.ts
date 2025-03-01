@@ -30,5 +30,6 @@ export type DbMessage = {
         price: string,
         quantity: string,
         orderId: string,
+        orderType: "limit" | "market",
     }
 }

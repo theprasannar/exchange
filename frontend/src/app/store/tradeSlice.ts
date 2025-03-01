@@ -2,11 +2,11 @@ import { createAsyncThunk, createSlice, PayloadAction } from "@reduxjs/toolkit";
 import { getTrades } from "../lib/api";
 import { Trade } from "../types/types";
 import { SignalingManager } from "../utils/SignalingManager";
+import { atomicToBtc, atomicToUsdc } from "../utils/currency";
 
 
 export function formatTime(timestamp: string): string {
   const date = new Date(timestamp); // Pass the ISO string directly to Date
-  console.log("formatTime ~ date:", date)
   if (isNaN(date.getTime())) {
     console.error("Invalid timestamp:", timestamp);
     return "Invalid Time";
@@ -47,8 +47,8 @@ type TradesState = {
           console.log('action,', action.payload);
           const newTrade = {
             isBuyerMaker: action.payload.m,
-            price: action.payload.p,
-            quantity: action.payload.q,
+            price: atomicToUsdc(action.payload.p),
+            quantity: atomicToBtc(action.payload.q),
             timestamp: formatTime(action.payload.T) // Now it's an ISO string
           }
             state.trades.unshift(newTrade);

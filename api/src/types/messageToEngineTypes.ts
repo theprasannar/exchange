@@ -9,6 +9,7 @@ export type MessageToEngine =
         quantity: string;
         side: "buy" | "sell";
         userId: string;
+        orderType?: "limit" | "market"; 
       };
     }
   | {

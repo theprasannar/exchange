@@ -17,6 +17,7 @@ export type MessageFromAPI =
         quantity: string; // string representation of atomic quantity
         side: "buy" | "sell";
         userId: string;
+        orderType: "limit" | "market"
       };
     }
   | {

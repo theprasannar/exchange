@@ -4,8 +4,8 @@ import prisma from "../../../db/src/lib/prisma";
 
 export const getKlineData = async (req: Request, res: Response): Promise<any> => {
   try {
-    const { market, interval, limit = "100" } = req.query as {
-      market: string;
+    const { symbol: market, interval, limit = "100" } = req.query as {
+      symbol: string;
       interval: string;
       limit: string;
     };

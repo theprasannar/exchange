@@ -23,7 +23,6 @@ async function main() {
                 if (response ?? false) {
                     await redisClient.publish(clientId, JSON.stringify(response));
                 } else {
-                    console.error("No response to publish for clientId:", clientId);
                 }
                 
         

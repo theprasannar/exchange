@@ -1,9 +1,10 @@
 export interface CreateOrder {
     market: string;
-    price: string;
+    price?: string;
     quantity: string;
     side: "buy" | "sell";
     userId?: string;
+    orderType: "limit" | "market";
 
 }
 

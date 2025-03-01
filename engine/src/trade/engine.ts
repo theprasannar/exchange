@@ -4,6 +4,7 @@ import { ORDER_CREATE, ORDER_UPDATE, TRADE_ADDED } from '../types';
 import { CANCEL_ORDER, CREATE_ORDER, GET_DEPTH, GET_OPEN_ORDERS, GET_TICKER_DETAILS, MessageFromAPI, ON_RAMP } from '../types/MessageFromAPI';
 import { BTC_SCALE, mulDiv } from '../utils/currency';
 import { tickerAggregator } from './tickerAggregator';
+import { initRealTimeKlineAggregator } from './realTimeKline';
 
 export const BASE_CURRENCY = "USDC";
 
@@ -24,6 +25,7 @@ export class Engine {
     const btcUsdcOrderBook = new OrderBook('BTC', [], [], 'USDC', 0, 0n);
     this.orderBooks.push(btcUsdcOrderBook);
 
+    initRealTimeKlineAggregator()
     // Pre-seed balances for 50 users (adjust amounts if necessary)
     for (let i = 1; i <= 50; i++) {
       this.balance.set(`user${i}`, {
@@ -39,8 +41,8 @@ export class Engine {
     switch (message.type) {
       case CREATE_ORDER:
         try {
-          const { market, quantity, price, side, userId } = message.data;
-          const { executedQty, fills, orderId } = this.createOrder(market, quantity, price, side, userId);
+          const { market, quantity, price, side, userId, orderType } = message.data;
+          const { executedQty, fills, orderId } = this.createOrder(market, quantity, price, side, userId, orderType);
           RedisManager.getInstance().sendToApi(clientId, {
             type: "ORDER_PLACED",
             payload: {
@@ -203,7 +205,16 @@ export class Engine {
 
   // Engine.ts
 
-  createOrder(market: string, rawQuantity: string, rawPrice: string, side: "buy" | "sell", userId: string) {
+  createOrder(market: string, rawQuantity: string, rawPrice: string, side: "buy" | "sell", userId: string, orderType: "limit" | "market") {
+
+    if (orderType === 'market') {
+      return this.executeMarketOrder(market, rawQuantity, side, userId);
+    } else {
+      return this.executeLimitOrder(market, rawQuantity, rawPrice, side, userId);
+    }
+  }
+
+  executeLimitOrder(market: string, rawQuantity: string, rawPrice: string, side: "buy" | "sell" , userId: string) {
     // Check if orderBook exists
     const orderbook = this.orderBooks.find(orderBook => orderBook.ticker() === market);
     if (!orderbook) {
@@ -225,6 +236,7 @@ export class Engine {
         price: price.toString(),
         quantity: quantity.toString(),
         orderId: localOrderId,
+        orderType: "limit"
       },
     });
     const baseAsset = market.split('_')[0];
@@ -253,7 +265,205 @@ export class Engine {
     //@ts-ignore
     return { executedQty, fills, orderId: localOrderId };
   }
-
+  private executeMarketOrder(
+    market: string,
+    rawQuantity: string,
+    side: "buy" | "sell",
+    userId: string
+  ) {
+    const orderbook = this.orderBooks.find(ob => ob.ticker() === market);
+    if (!orderbook) {
+      throw new Error(`No OrderBook found for ${market}`);
+    }
+  
+    const quantity = BigInt(rawQuantity);
+    const localOrderId = crypto.randomUUID();
+  
+    // Offload order persistence if needed
+    RedisManager.getInstance().pushMessage({
+      type: ORDER_CREATE,
+      data: {
+        userId,
+        market,
+        side,
+        price: '0',          // Not relevant for market
+        quantity: quantity.toString(),
+        orderId: localOrderId,
+        orderType: 'market',
+      },
+    });
+  
+    // Check & lock funds
+    const [baseAsset, quoteAsset] = market.split("_");
+  
+    // For a BUY market order, we must lock "max possible cost" or do partial fills
+    // - For a buy, we guess the total cost by looking at top-of-book or some multiplier
+    //   or we can simply lock all the user's available USDC. 
+    // For a sell, we lock exactly `quantity` of base asset.
+  
+    if (side === "buy") {
+      // lock all USDC the user has (worst-case scenario).
+      const userBalances = this.balance.get(userId);
+      if (!userBalances) throw new Error(`No balance found for user ${userId}`);
+  
+      const maxAvailable = userBalances[quoteAsset].available;
+      if (maxAvailable <= 0n) {
+        throw new Error(`Insufficient ${quoteAsset} balance`);
+      }
+      // Lock everything, then we'll refund the leftover
+      userBalances[quoteAsset].locked += maxAvailable;
+      userBalances[quoteAsset].available -= maxAvailable;
+    } else {
+      // side === "sell"
+      this.checkAndLockFunds(baseAsset, quoteAsset, userId, 0n, side, quantity);
+    }
+  
+    // Build a local "order" object for internal reference
+    const order: Order = {
+      quantity,
+      price: 0n,    // Market order, no price
+      orderId: localOrderId,
+      filled: 0n,
+      side,
+      userId
+    };
+  
+    // 1) We'll collect fills
+    const fills: Fill[] = [];
+    let executedQty = 0n;
+  
+    // 2) While we still have quantity to fill:
+    if (side === "buy") {
+      executedQty = this.matchMarketBuy(order, orderbook, fills);
+    } else {
+      executedQty = this.matchMarketSell(order, orderbook, fills);
+    }
+  
+    // 3) Update user balances for the TAKER
+    this.updateBalance(userId, baseAsset, quoteAsset, side, fills);
+  
+    // 4) FEES
+  
+    // 5) If buy, we must "refund" leftover locked quote
+    if (side === "buy") {
+      const userBalances = this.balance.get(userId);
+      if (!userBalances) throw new Error("User not found for leftover unlock");
+  
+      // How much quote did we actually spend?
+      let totalSpent = 0n;
+      for (const fill of fills) {
+        // cost = fill.price * fill.quantity / BTC_SCALE
+        const cost = mulDiv(fill.price, fill.quantity, BTC_SCALE.toString());
+        totalSpent += cost;
+      }
+  
+      // Unlock the difference
+      const lockedNow = userBalances[quoteAsset].locked;
+      const leftover = lockedNow - totalSpent >= 0n ? lockedNow - totalSpent : 0n;
+      userBalances[quoteAsset].locked -= leftover;
+      userBalances[quoteAsset].available += leftover;
+    }
+  
+    // 6) DB & WS updates
+    this.createDbTrades(fills, market, userId);
+    this.updateDbOrders(order, executedQty, fills, market);
+    // No publishWsDepthUpdates for leftover order, because there's no leftover on the book
+    this.publishWsTrades(fills, market, userId);
+    this.updateAndPublishTicker(fills, market);
+  
+    return { executedQty, fills, orderId: localOrderId };
+  }
+  
+  /**
+   * matchMarketBuy tries to fill a BUY market order by
+   * consuming the lowest asks in ascending price order.
+   */
+  private matchMarketBuy(order: Order, orderbook: OrderBook, fills: Fill[]): bigint {
+    let executedQty = 0n;
+  
+    // Sort asks by ascending price so we consume cheapest first
+    // (You might keep them sorted always, but let's ensure here)
+    orderbook.asks.sort((a, b) => (a.price < b.price ? -1 : 1));
+  
+    for (let i = 0; i < orderbook.asks.length; i++) {
+      const ask = orderbook.asks[i];
+      const askRemaining = ask.quantity - ask.filled;
+      if (askRemaining <= 0n) continue;
+  
+      // If we have no more quantity to fill, break
+      const needed = order.quantity - executedQty;
+      if (needed <= 0n) break;
+  
+      // Price check: Market buy has no limit, so we match any price
+      // Fillable quantity
+      const fillQty = needed < askRemaining ? needed : askRemaining;
+  
+      // Fill
+      executedQty += fillQty;
+      ask.filled += fillQty;
+  
+      fills.push({
+        price: ask.price,
+        quantity: fillQty,
+        tradeId: orderbook.lastTradeId++,
+        makerUserId: ask.userId,
+        makerOrderId: ask.orderId,
+        timestamp: Date.now()
+      });
+  
+      // If the ask is fully filled, remove from orderbook
+      if (ask.filled === ask.quantity) {
+        orderbook.asks.splice(i, 1);
+        i--;
+      }
+    }
+  
+    return executedQty;
+  }
+  
+  /**
+   * matchMarketSell tries to fill a SELL market order by
+   * consuming the highest bids in descending price order.
+   */
+  private matchMarketSell(order: Order, orderbook: OrderBook, fills: Fill[]): bigint {
+    let executedQty = 0n;
+  
+    // Sort bids by descending price so we consume best (highest) first
+    orderbook.bids.sort((a, b) => (a.price > b.price ? -1 : 1));
+  
+    for (let i = 0; i < orderbook.bids.length; i++) {
+      const bid = orderbook.bids[i];
+      const bidRemaining = bid.quantity - bid.filled;
+      if (bidRemaining <= 0n) continue;
+  
+      const needed = order.quantity - executedQty;
+      if (needed <= 0n) break;
+  
+      // Market sell matches any price
+      const fillQty = needed < bidRemaining ? needed : bidRemaining;
+  
+      executedQty += fillQty;
+      bid.filled += fillQty;
+  
+      fills.push({
+        price: bid.price,
+        quantity: fillQty,
+        tradeId: orderbook.lastTradeId++,
+        makerUserId: bid.userId,
+        makerOrderId: bid.orderId,
+        timestamp: Date.now()
+      });
+  
+      // Remove fully filled bid
+      if (bid.filled === bid.quantity) {
+        orderbook.bids.splice(i, 1);
+        i--;
+      }
+    }
+  
+    return executedQty;
+  }
+  
 
   checkAndLockFunds(
     baseAsset: string,
@@ -276,7 +486,6 @@ export class Engine {
       userBalances[quoteAsset].available = userBalances[quoteAsset].available - totalCost;
       userBalances[quoteAsset].locked = userBalances[quoteAsset].locked + totalCost;
     } else {
-      console.log(userBalances[baseAsset].available, quantity);
       if (userBalances[baseAsset].available < quantity) {
         throw new Error(`Insufficient ${baseAsset} balance`);
       }

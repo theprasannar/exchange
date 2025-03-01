@@ -22,7 +22,7 @@ const PORT = process.env.PORT || 4000;
 app.use('/api/v1/orders', orderRoutes);
 app.use('/api/v1/ticker', tickerRoutes);
 app.use("/api/v1/trades", tradeRoutes);
-app.use("/api/v1/kline", klineRoutes);
+app.use("/api/v1/klines", klineRoutes);
 
 
 

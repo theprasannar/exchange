@@ -14,6 +14,7 @@ export const getTickerController = async (req: Request, res: Response): Promise<
       type: GET_TICKER_DETAILS,
       data: { market }
     }, 5000); // 5-second timeout
+    console.log(" response ~ response:", response)
 
     // Return the ticker data from the engine's response
     //@ts-ignore
