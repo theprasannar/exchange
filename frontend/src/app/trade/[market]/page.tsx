@@ -6,10 +6,22 @@ import { Depth } from "../../components/trade/Depth";
 import { SwapUI } from "../../components/trade/SwapUI";
 import { TradeView } from "../../components/trade/TradeView";
 import { BookTradesPanel } from "../../components/trade/BookTrade";
+import { useEffect } from "react";
+import { useAuth } from "../../../context/AuthContext";
+import { useRouter } from "next/navigation";
+
 
 export default function TradePage() {
   const { market } = useParams();
+  const router = useRouter();
+  const { token } = useAuth();
 
+
+  useEffect(() => {
+    if (!token) {
+      router.push("/auth/signin");
+    }
+  }, [token, router]);
   return (
     <div className="flex w-full h-ful bg-[#0e0f14] text-white justify-center px-8 gap-2">
       <div className="w-full max-w-[90vw] md:max-w-[2100px] h-full mx-auto flex flex-col gap-2">

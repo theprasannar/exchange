@@ -3,7 +3,7 @@ export interface CreateOrder {
     price?: string;
     quantity: string;
     side: "buy" | "sell";
-    userId?: string;
+    userId: string;
     orderType: "limit" | "market";
 
 }

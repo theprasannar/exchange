@@ -2,6 +2,9 @@
   "compilerOptions": {
     "target": "ES2020",  // Update this to ES2020 or later
     "module": "CommonJS",
+    "paths": {
+      "@db/*": ["../../db/src/*"]
+    },
     "rootDir": "./src",
     "outDir": "./dist",
     "strict": true,

@@ -1,13 +1,21 @@
 "use client";
 
 import { usePathname, useRouter } from "next/navigation";
-import { PrimaryButton } from "../core/Button";
-import { SuccessButton } from "../core/Button";
+import { PrimaryButton, SuccessButton, DangerButton } from "../core/Button";
+import { useAuth } from "../../../context/AuthContext";
 import Image from "next/image";
 
 export const Appbar = () => {
   const route = usePathname();
   const router = useRouter();
+  const { token, email, logout } = useAuth();
+  const isAuthenticated = Boolean(token);
+  const userInitial = email ? email.charAt(0).toUpperCase() : null;
+
+  const handleLogout = () => {
+    logout();
+    router.push("/auth/signin");
+  };
 
   return (
     <div className="text-white border-slate-800">
@@ -15,33 +23,38 @@ export const Appbar = () => {
         <div className="flex">
           <div
             className="text-xxl pl-4 flex justify-center items-center cursor-pointer gap-2 text-white"
-            onClick={() => router.push("/")}
+            onClick={() => router.push("/home")}
           >
-            <Image
+              <Image
               src="/images/image.webp"
               alt="BTC"
               width={30}
               height={30}
               className="rounded-full"
             />
-            <p>
-            Nexus
-            </p>
-          </div>
-          <div
-            className={`text-sm pt-1 flex flex-col justify-center pl-8 cursor-pointer ${
-              route.startsWith("/trade") ? "text-slate-400" : "text-slate-500"
-            }`}
-            onClick={() => router.push("/trade/SOL_USDC")}
-          >
-            Trade
+            <p>Nexus</p>
           </div>
         </div>
         <div className="flex">
-          <div className="p-2 mr-2">
-            <SuccessButton>Sign up</SuccessButton>
-            <PrimaryButton>Sign in</PrimaryButton>
-          </div>
+          {isAuthenticated ? (
+            // Show User Initial & Logout if logged in
+            <div className="relative flex items-center gap-4">
+              <div className="w-7 h-7 flex items-center justify-center bg-gray-700 text-white font-bold rounded-full">
+                {userInitial}
+              </div>
+              <DangerButton onClick={handleLogout}>Logout</DangerButton>
+            </div>
+          ) : (
+            // Show Sign up & Sign in if not logged in
+            <div className="p-2 mr-2">
+              <SuccessButton onClick={() => router.push("/auth/signup")}>
+                Sign up
+              </SuccessButton>
+              <PrimaryButton onClick={() => router.push("/auth/signin")}>
+                Sign in
+              </PrimaryButton>
+            </div>
+          )}
         </div>
       </div>
     </div>

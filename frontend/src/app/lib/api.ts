@@ -41,3 +41,22 @@ export async function getKlines(market: string, interval: string, limit?: number
     const data: KLine[] = response.data;
     return data;
 }
+export async function login(email: string, password: string)  {
+    const response = await axios.post(`${BASE_URL}/auth/login`, {
+        email,
+        password
+    });
+    const data = response.data;
+    console.log(" signup ~ data:", data)
+    return data;
+}
+
+
+export async function signup(email: string, password: string)  {
+    const response = await axios.post(`${BASE_URL}/auth/signup`, {
+        email,
+        password
+    });
+    const data = response.data;
+    return data;
+}

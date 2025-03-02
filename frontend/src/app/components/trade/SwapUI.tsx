@@ -2,14 +2,20 @@
 import { useState } from "react";
 import { createOrder } from "../../lib/api";
 import toast from "react-hot-toast";
+import { useAuth } from "../../../context/AuthContext";
 
 export function SwapUI({ market }: { market: string }) {
   const [activeTab, setActiveTab] = useState<"buy" | "sell">("buy");
   const [type, setType] = useState<"limit" | "market">("limit");
   const [price, setPrice] = useState<string>("");
   const [quantity, setQuantity] = useState<string>("");
+  const { userId } = useAuth();
 
   const handleCreateOrder = async () => {
+    if (!userId) {
+      toast.error("Please login first");
+      return;
+    }
     if (!quantity || (type === "limit" && !price)) {
       toast.error("Please enter required fields.");
       return;
@@ -22,7 +28,7 @@ export function SwapUI({ market }: { market: string }) {
         price: type === "market" ? undefined : price, // Remove price for market orders
         quantity,
         side: activeTab,
-        userId: "user11",
+        userId: userId,
         orderType: type, // Explicitly add the order type
       };
 

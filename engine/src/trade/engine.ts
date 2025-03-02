@@ -5,7 +5,7 @@ import { CANCEL_ORDER, CREATE_ORDER, GET_DEPTH, GET_OPEN_ORDERS, GET_TICKER_DETA
 import { BTC_SCALE, mulDiv } from '../utils/currency';
 import { tickerAggregator } from './tickerAggregator';
 import { initRealTimeKlineAggregator } from './realTimeKline';
-
+import prisma from '../../../db/src/lib/prisma';
 export const BASE_CURRENCY = "USDC";
 
 interface UserBalance {
@@ -27,14 +27,21 @@ export class Engine {
 
     initRealTimeKlineAggregator()
     // Pre-seed balances for 50 users (adjust amounts if necessary)
-    for (let i = 1; i <= 50; i++) {
-      this.balance.set(`user${i}`, {
-        USDC: { available: 1000000000000n * BigInt(i), locked: 0n },
-        BTC: { available: 100000000000n * BigInt(i), locked: 0n },
-      });
-    }
+    this.loadAllBalancesFromDB();
   }
 
+  async loadAllBalancesFromDB() {
+    const allUsers = await prisma.user.findMany();
+    console.log(" loadAllBalancesFromDB ~ allUsers:", allUsers)
+    for (const user of allUsers) {
+      this.balance.set(user.id, {
+        USDC: {available: user.usdcBalance, locked: 0n},
+        BTC: {available: user.btcBalance, locked: 0n},
+      });
+    }
+    console.log("Loaded user balances into memory");
+  }
+  
   // Engine.ts
 
   process({ message, clientId }: { message: MessageFromAPI, clientId: string }) {

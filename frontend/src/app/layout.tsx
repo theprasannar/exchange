@@ -4,6 +4,7 @@ import "./globals.css";
 import { Appbar } from "../app/components/trade/Appbar";
 import { Providers } from "./provider";
 import { Toaster } from "react-hot-toast";
+import { AuthProvider } from "../context/AuthContext";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -14,16 +15,18 @@ export const metadata: Metadata = {
 
 export default function RootLayout({
   children,
-}: Readonly<{
+}: {
   children: React.ReactNode;
-}>) {
+}) {
   return (
     <html lang="en">
       <body className={inter.className}>
-      <Providers> {/* Wrap your app in the Redux Provider */}
-          <Appbar />
-          {children}
-          <Toaster position="top-right" reverseOrder={false} />
+        <Providers>
+          <AuthProvider>
+            <Appbar />
+            {children}
+            <Toaster position="top-right" reverseOrder={false} />
+          </AuthProvider>
         </Providers>
       </body>
     </html>

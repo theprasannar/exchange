@@ -4,6 +4,7 @@ import orderRoutes from './routes/orderRoutes'
 import tickerRoutes from './routes/tickerRoutes'
 import tradeRoutes from "./routes/tradeRoutes"; 
 import klineRoutes from "./routes/klineRoutes"; 
+import authRoutes from "./routes/authRoutes";
 
 
 
@@ -23,6 +24,7 @@ app.use('/api/v1/orders', orderRoutes);
 app.use('/api/v1/ticker', tickerRoutes);
 app.use("/api/v1/trades", tradeRoutes);
 app.use("/api/v1/klines", klineRoutes);
+app.use("/api/v1/auth", authRoutes);
 
 
 
