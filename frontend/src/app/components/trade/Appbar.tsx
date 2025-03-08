@@ -17,13 +17,22 @@ export const Appbar = () => {
     router.push("/auth/signin");
   };
 
+
+  const handleNavigation = () => {
+    if (isAuthenticated) {
+      router.push("/home");
+    }
+  };
+  
   return (
     <div className="text-white border-slate-800">
       <div className="flex justify-between items-center p-2">
         <div className="flex">
           <div
-            className="text-xxl pl-4 flex justify-center items-center cursor-pointer gap-2 text-white"
-            onClick={() => router.push("/home")}
+             className={`text-xxl pl-4 flex justify-center items-center gap-2 text-white ${
+              isAuthenticated ? "cursor-pointer" : "cursor-default"
+            }`}
+            onClick={handleNavigation}
           >
               <Image
               src="/images/image.webp"

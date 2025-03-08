@@ -1,20 +1,21 @@
 import axios from "axios";
-import { Depth, KLine, Ticker, Trade } from "../types/types";
+import { Depth, KLine, Ticker, TickerFromEngine, Trade } from "../types/types";
 import { CreateOrder, CreateOrderResponse } from "../types/swap";
 
 const BASE_URL = "http://localhost:4000/api/v1";
 
 
-export async function getTicker(market: string) : Promise<Ticker> {
+export async function getTicker(market: string) : Promise<TickerFromEngine> {
     const response = await axios.get(`${BASE_URL}/ticker/${market}`);
-    return response.data;
+    return response.data; 
 }
 
-export async function createOrder(order: CreateOrder): Promise<CreateOrderResponse> {
+ export async function createOrder(order: CreateOrder): Promise<CreateOrderResponse> {
     const response = await axios.post(`${BASE_URL}/orders`, order);
     return response.data;
 }
 export async function getTickers(): Promise<Ticker[]> {
+
     const response = await axios.get(`${BASE_URL}/tickers`);
     return response.data;
 }

@@ -6,42 +6,262 @@ import { BTC_SCALE, mulDiv } from '../utils/currency';
 import { tickerAggregator } from './tickerAggregator';
 import { initRealTimeKlineAggregator } from './realTimeKline';
 import prisma from '../../../db/src/lib/prisma';
+import { EventStore, Event } from './EventStore';
+
+
+
 export const BASE_CURRENCY = "USDC";
 
-interface UserBalance {
-  [key: string]: {
-    available: bigint;
-    locked: bigint;
-  };
+interface AssetBalance {
+  available: bigint;
+  locked: bigint;
 }
+
+interface UserBalance {
+  [asset: string]: AssetBalance;
+}
+
+interface SnapshotData {
+  snapshot: string;
+  createdAt: Date;
+  bids: any[];
+  asks: any[];
+  lastTradeId: number;
+  currentPrice: string;
+}
+
+interface OrderbookSnapshot {
+  market: string;
+  snapshot: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+/**
+
+ * - On startup, loads user balances from the DB.
+ * - For any subsequent updates (deposits, orders, trades, orderbook changes):
+ *    • Updates the in‑memory state immediately for low latency.
+ *    • Publishes an immutable event to a durable event store.
+ * - Reconciliation routines compare the in‑memory state with the DB.
+ */
 
 export class Engine {
   private orderBooks: OrderBook[] = [];
   private balance: Map<string, UserBalance> = new Map();
-
-  // Engine.ts
+  private processedEventIds: Set<string> = new Set(); // For idempotency
 
   constructor() {
-    const btcUsdcOrderBook = new OrderBook('BTC', [], [], 'USDC', 0, 0n);
-    this.orderBooks.push(btcUsdcOrderBook);
+    this.initialize()
+  }
+
+  getSupportedMarkers(): Array<{ base: string, quote: string }> {
+    return [
+      { base: "BTC", quote: BASE_CURRENCY }
+    ]
+  }
+  async initialize() {
+    console.log("Engine: Starting recovery process...");
+
+    const supportedMarkets = this.getSupportedMarkers();
+
+    for (const market of supportedMarkets) {
+      const orderBook = new OrderBook(market.base, [], [], market.quote, 0, BigInt(0))
+      this.orderBooks.push(orderBook);
+    }
+
+    //load balance from database
+    this.loadAllBalancesFromDB();
+
+    // 3. Recover each orderbook's state.
+    await this.recoverState();
 
     initRealTimeKlineAggregator()
-    // Pre-seed balances for 50 users (adjust amounts if necessary)
-    this.loadAllBalancesFromDB();
   }
 
   async loadAllBalancesFromDB() {
     const allUsers = await prisma.user.findMany();
-    console.log(" loadAllBalancesFromDB ~ allUsers:", allUsers)
     for (const user of allUsers) {
       this.balance.set(user.id, {
-        USDC: {available: user.usdcBalance, locked: 0n},
-        BTC: {available: user.btcBalance, locked: 0n},
+        USDC: { available: BigInt(user.usdcBalance), locked: 0n },
+        BTC: { available: BigInt(user.btcBalance), locked: 0n },
       });
     }
-    console.log("Loaded user balances into memory");
+    console.log("Engine: Loaded user balances into memory");
   }
-  
+
+
+  async recoverState() {
+    for (const orderBook of this.orderBooks) {
+      const market = orderBook.ticker();
+      try {
+        const snapshotRecord = await prisma.orderbookSnapshot.findUnique({
+          where: { market },
+        }) as OrderbookSnapshot | null;
+        
+        if (!snapshotRecord || !snapshotRecord.snapshot) {
+          console.log(`Engine: No snapshot found for market ${market}`);
+          continue;
+        }
+
+        const snapshot = JSON.parse(snapshotRecord.snapshot) as SnapshotData;
+
+        // orderBook.snapshotTime = new Date(snapshotRecord.createdAt).getTime().toString(); 
+
+
+        orderBook.bids = snapshot.bids.map((order: any) => ({
+          ...order,
+          price: BigInt(order.price),
+          quantity: BigInt(order.quantity),
+          filled: BigInt(order.filled),
+        }))
+
+        orderBook.asks = snapshot.asks.map((order: any) => ({
+          ...order,
+          price: BigInt(order.price),
+          quantity: BigInt(order.quantity),
+          filled: BigInt(order.filled),
+        }))
+
+        orderBook.lastTradeId = snapshot.lastTradeId;
+        orderBook.currentPrice = BigInt(snapshot.currentPrice);
+
+
+         // 4) Get the timestamp for replay
+      const snapshotTimestamp = snapshotRecord.updatedAt.getTime();
+
+      // Now only replay events with a timestamp strictly greater than snapshotTimestamp
+      await this.loadEventsFromRedis(snapshotTimestamp);
+
+        
+      } catch (error) {
+        console.error(`Engine: Error loading snapshot for market ${market}:`, error);
+      }
+    }
+  }
+
+  async loadEventsFromRedis(snapshotTimestamp: number) {
+    try {
+
+      const minScore = snapshotTimestamp ? `(${snapshotTimestamp}` : "0";
+
+      const eventsJson = await RedisManager.getInstance().getZRangeByScore(
+        "event_store",
+        minScore,
+        "+inf"
+      );
+      const events = eventsJson.map(json => JSON.parse(json));
+      events.sort((a, b) => a.timestamp - b.timestamp);
+      console.log(`Engine: Replaying ${events.length} events from Redis`);
+      for (const event of events) {
+        this.applyEvents(event);
+      }
+    } catch (error) {
+      console.log(`Engine: Error loading events from Redis`)
+    }
+  }
+
+async applyEvents(event: Event) {
+  switch (event.type) {
+    case ORDER_CREATE: {
+      const data = event.data;
+      const market = data.market;
+      const orderbook = this.orderBooks.find(o => o.ticker() === market);
+      if (!orderbook) {
+        console.warn(`Engine: Orderbook for market ${market} not found during event replay.`);
+        return;
+      }
+      // Reconstruct the order object from the event data.
+      const order = {
+        userId: data.userId,
+        orderId: data.orderId,
+        side: data.side,
+        price: BigInt(data.price),
+        quantity: BigInt(data.quantity),
+        filled: 0n,  // Assume no fills initially
+        orderType: data.orderType  // "limit" or "market"
+      };
+      // Replay by processing the order on the orderbook.
+      orderbook.processOrder(order);
+      break;
+    }
+    case ORDER_UPDATE: {
+      const data = event.data;
+      const market = data.market;
+      const orderbook = this.orderBooks.find(o => o.ticker() === market);
+      if (!orderbook) {
+        console.warn(`Engine: Orderbook for market ${market} not found during ORDER_UPDATE replay.`);
+        return;
+      }
+      // Find the order in bids or asks.
+      let order = orderbook.bids.find(o => o.orderId === data.orderId) ||
+                  orderbook.asks.find(o => o.orderId === data.orderId);
+      if (order) {
+        // Update the order's filled quantity.
+        order.filled = BigInt(data.executedQty);
+      } else {
+        console.warn(`Engine: Order ${data.orderId} not found in memory for ORDER_UPDATE replay.`);
+      }
+      break;
+    }
+    default:
+      console.warn(`Engine: Unknown event type ${event.type} during replay`);
+  }
+}
+
+  /**
+ * onRamp: A user deposits funds.
+ *  - Updates the in‑memory balance immediately.
+ *  - Publishes a BALANCE_UPDATE event for asynchronous DB persistence.
+ */
+  async onRamp(userId: string, amount: bigint) {
+    if (amount <= 0) {
+      throw new Error("Invalid amount for onRamp");
+    }
+    const userBalance = this.balance.get(userId);
+    if (!userBalance) {
+      this.balance.set(userId, {
+        [BASE_CURRENCY]: {
+          available: BigInt(amount), // store as bigint
+          locked: 0n,
+        },
+      });
+    } else {
+      userBalance[BASE_CURRENCY].available = userBalance[BASE_CURRENCY].available + BigInt(amount);
+    }
+
+    const event: Event = {
+      id: this.generateUniqueId(),
+      type: "BALANCE_UPDATE",
+      data: {
+        userId,
+        asset: BASE_CURRENCY,
+        balance: {
+          available: this.balance.get(userId)![BASE_CURRENCY].available.toString()
+        },
+      },
+      timestamp: Date.now()
+    }
+    await EventStore.publishEvent(event);
+  }
+  generateUniqueId(): string {
+    return crypto.randomUUID();
+  }
+  async persistBalanceUpdate(userId: string) {
+    const userBalance = this.balance.get(userId);
+    if (!userBalance) {
+      console.error(`No balance found for user ${userId}`);
+      return;
+    }
+
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        usdcBalance: userBalance.USDC.available,
+        btcBalance: userBalance.BTC.available,
+      }
+    });
+  }
   // Engine.ts
 
   process({ message, clientId }: { message: MessageFromAPI, clientId: string }) {
@@ -73,7 +293,7 @@ export class Engine {
         }
         break;
 
-      case CANCEL_ORDER: {
+      case CANCEL_ORDER:
         try {
           const { orderId, market } = message.data;
           this.cancelOrder(orderId, market, clientId); // Pass clientId to send response
@@ -81,7 +301,6 @@ export class Engine {
           console.log("Error while cancelling order");
           console.log(error);
         }
-      }
         break;
 
       case GET_OPEN_ORDERS:
@@ -192,7 +411,8 @@ export class Engine {
               currentPrice: tickerData?.last.toString(),
               high: tickerData?.high.toString(),
               low: tickerData?.low.toString(),
-              volume: tickerData?.volume.toString()
+              volume: tickerData?.volume.toString(),
+              symbol: market
             }
           })
         } catch (error) {
@@ -212,29 +432,26 @@ export class Engine {
 
   // Engine.ts
 
-  createOrder(market: string, rawQuantity: string, rawPrice: string, side: "buy" | "sell", userId: string, orderType: "limit" | "market") {
+  // Replace your createOrder function with this unified version:
+  createOrder(
+    market: string,
+    rawQuantity: string,
+    rawPrice: string,
+    side: "buy" | "sell",
+    userId: string,
+    orderType: "limit" | "market"
+  ) {
+    const orderbook = this.orderBooks.find(ob => ob.ticker() === market);
+    if (!orderbook) throw new Error(`No OrderBook found for ${market}`);
 
-    if (orderType === 'market') {
-      return this.executeMarketOrder(market, rawQuantity, side, userId);
-    } else {
-      return this.executeLimitOrder(market, rawQuantity, rawPrice, side, userId);
-    }
-  }
-
-  executeLimitOrder(market: string, rawQuantity: string, rawPrice: string, side: "buy" | "sell" , userId: string) {
-    // Check if orderBook exists
-    const orderbook = this.orderBooks.find(orderBook => orderBook.ticker() === market);
-    if (!orderbook) {
-      throw new Error(`No OrderBook found for ${market}`);
-    }
-
-    const quantity = BigInt(rawQuantity);  // Convert directly to bigint
-    const price = BigInt(rawPrice);        // Convert directly to bigint
-
+    const quantity = BigInt(rawQuantity);
+    // For market orders, price is not used; for limit orders, convert rawPrice.
+    const price = orderType === "limit" ? BigInt(rawPrice) : 0n;
     const localOrderId = crypto.randomUUID();
 
-    // Offload order persistence: Instead of calling Prisma here, we push a message.
-    RedisManager.getInstance().pushMessage({
+    // Publish ORDER_CREATE event (unchanged)
+    const orderCreateEvent: Event = {
+      id: localOrderId,
       type: ORDER_CREATE,
       data: {
         userId,
@@ -243,234 +460,56 @@ export class Engine {
         price: price.toString(),
         quantity: quantity.toString(),
         orderId: localOrderId,
-        orderType: "limit"
+        orderType,
       },
-    });
-    const baseAsset = market.split('_')[0];
-    const quoteAsset = market.split('_')[1];
+      timestamp: Date.now(),
+    };
+    EventStore.publishEvent(orderCreateEvent);
 
-    this.checkAndLockFunds(baseAsset, quoteAsset, userId, price, side, quantity);
+    const [baseAsset, quoteAsset] = market.split("_");
 
-    // Now we have locked the funds and can perform operation
-    const order: Order = {
-      quantity: quantity,
-      price: price,
-      orderId: localOrderId,
-      filled: 0n,
-      side,
-      userId
+    // Lock funds based on order type:
+    if (orderType === "limit") {
+      this.checkAndLockFunds(baseAsset, quoteAsset, userId, price, side, quantity);
+    } else {
+      // For market buy orders, lock all available quote funds.
+      if (side === "buy") {
+        const userBalances = this.balance.get(userId);
+        if (!userBalances) throw new Error(`No balance found for user ${userId}`);
+        const maxAvailable = userBalances[quoteAsset].available;
+        if (maxAvailable <= 0n) throw new Error(`Insufficient ${quoteAsset} balance`);
+        userBalances[quoteAsset].locked += maxAvailable;
+        userBalances[quoteAsset].available -= maxAvailable;
+      } else {
+        // For market sell orders, lock exactly the base asset.
+        this.checkAndLockFunds(baseAsset, quoteAsset, userId, 0n, side, quantity);
+      }
     }
 
-    const { fills, executedQty } = orderbook.addOrder(order);
-    this.updateBalance(userId, baseAsset, quoteAsset, side, fills);
+    // Create the order object including orderType.
+    const order: Order = {
+      userId,
+      orderId: localOrderId,
+      side,
+      price,
+      quantity,
+      filled: 0n,
+      orderType,
+    };
 
+    // Unified processing: call processOrder() on the OrderBook.
+    const { executedQty, fills } = orderbook.processOrder(order);
+
+    // Update balances and publish events as before.
+    this.updateBalance(userId, baseAsset, quoteAsset, side, fills);
     this.createDbTrades(fills, market, userId);
     this.updateDbOrders(order, executedQty, fills, market);
     this.publishWsDepthUpdates(fills, price, side, market);
     this.publishWsTrades(fills, market, userId);
     this.updateAndPublishTicker(fills, market);
-    //@ts-ignore
+
     return { executedQty, fills, orderId: localOrderId };
   }
-  private executeMarketOrder(
-    market: string,
-    rawQuantity: string,
-    side: "buy" | "sell",
-    userId: string
-  ) {
-    const orderbook = this.orderBooks.find(ob => ob.ticker() === market);
-    if (!orderbook) {
-      throw new Error(`No OrderBook found for ${market}`);
-    }
-  
-    const quantity = BigInt(rawQuantity);
-    const localOrderId = crypto.randomUUID();
-  
-    // Offload order persistence if needed
-    RedisManager.getInstance().pushMessage({
-      type: ORDER_CREATE,
-      data: {
-        userId,
-        market,
-        side,
-        price: '0',          // Not relevant for market
-        quantity: quantity.toString(),
-        orderId: localOrderId,
-        orderType: 'market',
-      },
-    });
-  
-    // Check & lock funds
-    const [baseAsset, quoteAsset] = market.split("_");
-  
-    // For a BUY market order, we must lock "max possible cost" or do partial fills
-    // - For a buy, we guess the total cost by looking at top-of-book or some multiplier
-    //   or we can simply lock all the user's available USDC. 
-    // For a sell, we lock exactly `quantity` of base asset.
-  
-    if (side === "buy") {
-      // lock all USDC the user has (worst-case scenario).
-      const userBalances = this.balance.get(userId);
-      if (!userBalances) throw new Error(`No balance found for user ${userId}`);
-  
-      const maxAvailable = userBalances[quoteAsset].available;
-      if (maxAvailable <= 0n) {
-        throw new Error(`Insufficient ${quoteAsset} balance`);
-      }
-      // Lock everything, then we'll refund the leftover
-      userBalances[quoteAsset].locked += maxAvailable;
-      userBalances[quoteAsset].available -= maxAvailable;
-    } else {
-      // side === "sell"
-      this.checkAndLockFunds(baseAsset, quoteAsset, userId, 0n, side, quantity);
-    }
-  
-    // Build a local "order" object for internal reference
-    const order: Order = {
-      quantity,
-      price: 0n,    // Market order, no price
-      orderId: localOrderId,
-      filled: 0n,
-      side,
-      userId
-    };
-  
-    // 1) We'll collect fills
-    const fills: Fill[] = [];
-    let executedQty = 0n;
-  
-    // 2) While we still have quantity to fill:
-    if (side === "buy") {
-      executedQty = this.matchMarketBuy(order, orderbook, fills);
-    } else {
-      executedQty = this.matchMarketSell(order, orderbook, fills);
-    }
-  
-    // 3) Update user balances for the TAKER
-    this.updateBalance(userId, baseAsset, quoteAsset, side, fills);
-  
-    // 4) FEES
-  
-    // 5) If buy, we must "refund" leftover locked quote
-    if (side === "buy") {
-      const userBalances = this.balance.get(userId);
-      if (!userBalances) throw new Error("User not found for leftover unlock");
-  
-      // How much quote did we actually spend?
-      let totalSpent = 0n;
-      for (const fill of fills) {
-        // cost = fill.price * fill.quantity / BTC_SCALE
-        const cost = mulDiv(fill.price, fill.quantity, BTC_SCALE.toString());
-        totalSpent += cost;
-      }
-  
-      // Unlock the difference
-      const lockedNow = userBalances[quoteAsset].locked;
-      const leftover = lockedNow - totalSpent >= 0n ? lockedNow - totalSpent : 0n;
-      userBalances[quoteAsset].locked -= leftover;
-      userBalances[quoteAsset].available += leftover;
-    }
-  
-    // 6) DB & WS updates
-    this.createDbTrades(fills, market, userId);
-    this.updateDbOrders(order, executedQty, fills, market);
-    // No publishWsDepthUpdates for leftover order, because there's no leftover on the book
-    this.publishWsTrades(fills, market, userId);
-    this.updateAndPublishTicker(fills, market);
-  
-    return { executedQty, fills, orderId: localOrderId };
-  }
-  
-  /**
-   * matchMarketBuy tries to fill a BUY market order by
-   * consuming the lowest asks in ascending price order.
-   */
-  private matchMarketBuy(order: Order, orderbook: OrderBook, fills: Fill[]): bigint {
-    let executedQty = 0n;
-  
-    // Sort asks by ascending price so we consume cheapest first
-    // (You might keep them sorted always, but let's ensure here)
-    orderbook.asks.sort((a, b) => (a.price < b.price ? -1 : 1));
-  
-    for (let i = 0; i < orderbook.asks.length; i++) {
-      const ask = orderbook.asks[i];
-      const askRemaining = ask.quantity - ask.filled;
-      if (askRemaining <= 0n) continue;
-  
-      // If we have no more quantity to fill, break
-      const needed = order.quantity - executedQty;
-      if (needed <= 0n) break;
-  
-      // Price check: Market buy has no limit, so we match any price
-      // Fillable quantity
-      const fillQty = needed < askRemaining ? needed : askRemaining;
-  
-      // Fill
-      executedQty += fillQty;
-      ask.filled += fillQty;
-  
-      fills.push({
-        price: ask.price,
-        quantity: fillQty,
-        tradeId: orderbook.lastTradeId++,
-        makerUserId: ask.userId,
-        makerOrderId: ask.orderId,
-        timestamp: Date.now()
-      });
-  
-      // If the ask is fully filled, remove from orderbook
-      if (ask.filled === ask.quantity) {
-        orderbook.asks.splice(i, 1);
-        i--;
-      }
-    }
-  
-    return executedQty;
-  }
-  
-  /**
-   * matchMarketSell tries to fill a SELL market order by
-   * consuming the highest bids in descending price order.
-   */
-  private matchMarketSell(order: Order, orderbook: OrderBook, fills: Fill[]): bigint {
-    let executedQty = 0n;
-  
-    // Sort bids by descending price so we consume best (highest) first
-    orderbook.bids.sort((a, b) => (a.price > b.price ? -1 : 1));
-  
-    for (let i = 0; i < orderbook.bids.length; i++) {
-      const bid = orderbook.bids[i];
-      const bidRemaining = bid.quantity - bid.filled;
-      if (bidRemaining <= 0n) continue;
-  
-      const needed = order.quantity - executedQty;
-      if (needed <= 0n) break;
-  
-      // Market sell matches any price
-      const fillQty = needed < bidRemaining ? needed : bidRemaining;
-  
-      executedQty += fillQty;
-      bid.filled += fillQty;
-  
-      fills.push({
-        price: bid.price,
-        quantity: fillQty,
-        tradeId: orderbook.lastTradeId++,
-        makerUserId: bid.userId,
-        makerOrderId: bid.orderId,
-        timestamp: Date.now()
-      });
-  
-      // Remove fully filled bid
-      if (bid.filled === bid.quantity) {
-        orderbook.bids.splice(i, 1);
-        i--;
-      }
-    }
-  
-    return executedQty;
-  }
-  
 
   checkAndLockFunds(
     baseAsset: string,
@@ -619,9 +658,9 @@ export class Engine {
   createDbTrades(fills: Fill[], market: string, userId: string) {
     for (const fill of fills) {
       const isBuyerMaker = fill.makerUserId === userId;
-
-      RedisManager.getInstance().pushMessage({
-        type: TRADE_ADDED,
+      const tradeEvent: Event = {
+        id: fill.tradeId.toString(),
+        type: "TRADE_EXECUTED",
         data: {
           market,
           id: fill.tradeId.toString(),
@@ -630,33 +669,92 @@ export class Engine {
           quantity: fill.quantity.toString(),
           quoteQuantity: mulDiv(fill.price, fill.quantity, BTC_SCALE.toString()).toString(),
           timestamp: fill.timestamp,
+          makerOrderId: fill.makerOrderId || null,
+          takerOrderId: null,
+          makerUserId: fill.makerUserId || null,
+          takerUserId: userId,
         },
-      });
+        timestamp: Date.now(),
+      };
+      EventStore.publishEvent(tradeEvent);
     }
   }
 
   updateDbOrders(order: Order, executedQty: bigint, fills: Fill[], market: string) {
-    RedisManager.getInstance().pushMessage({
-      type: ORDER_UPDATE,
+    const orderUpdateEvent: Event = {
+      id: this.generateUniqueId(),
+      type: "ORDER_UPDATE",
       data: {
         orderId: order.orderId,
         executedQty: executedQty.toString(),
-        market: market,
+        market,
         price: order.price.toString(),
         quantity: order.quantity.toString(),
         side: order.side,
       },
-    });
-
+      timestamp: Date.now(),
+    };
+    EventStore.publishEvent(orderUpdateEvent);
     for (const fill of fills) {
-      RedisManager.getInstance().pushMessage({
-        type: ORDER_UPDATE,
+      const fillUpdateEvent: Event = {
+        id: this.generateUniqueId(),
+        type: "ORDER_UPDATE",
         data: {
           orderId: fill.makerOrderId!,
           executedQty: fill.quantity.toString(),
         },
-      });
+        timestamp: Date.now(),
+      };
+      EventStore.publishEvent(fillUpdateEvent);
     }
+  }
+
+
+  async reconcileBalances() {
+    const dbUsers = await prisma.user.findMany();
+    for (const user of dbUsers) {
+      const memBalance = this.balance.get(user.id);
+      if (memBalance) {
+        const dbUSDC = BigInt(user.usdcBalance);
+        if (memBalance.USDC.available !== dbUSDC) {
+          console.error(
+            `Reconciliation discrepancy for user ${user.id}: In‑memory USDC ${memBalance.USDC.available} vs DB ${dbUSDC}`
+          );
+          // Optionally, reissue a balance update event:
+          const event: Event = {
+            id: this.generateUniqueId(),
+            type: "BALANCE_UPDATE",
+            data: {
+              userId: user.id,
+              asset: BASE_CURRENCY,
+              available: memBalance.USDC.available.toString(),
+            },
+            timestamp: Date.now(),
+          };
+          await EventStore.publishEvent(event);
+        }
+      } else {
+        console.warn(`User ${user.id} missing in memory during reconciliation`);
+      }
+    }
+    console.log("Reconciliation: Completed balance check.");
+  }
+
+
+  async snapshotOrderbook(market: string) {
+    const orderbook = this.orderBooks.find(ob => ob.ticker() === market);
+    if (!orderbook) {
+      console.error(`No orderbook found for market ${market} to snapshot`);
+      return;
+    }
+    const snapshot = orderbook.getSnapshot ? orderbook.getSnapshot() : orderbook;
+    const event: Event = {
+      id: this.generateUniqueId(),
+      type: "ORDERBOOK_SNAPSHOT",
+      data: { market, snapshot },
+      timestamp: Date.now(),
+    };
+    await EventStore.publishEvent(event);
   }
 
   publishWsDepthUpdates(fills: Fill[], price: bigint, side: "buy" | "sell", market: string) {
@@ -766,21 +864,5 @@ export class Engine {
       });
     }
 
-  }
-  onRamp(userId: string, amount: bigint) {
-    if (amount <= 0) {
-      throw new Error("Amount should be greater than 0");
-    }
-    const userBalance = this.balance.get(userId);
-    if (!userBalance) {
-      this.balance.set(userId, {
-        [BASE_CURRENCY]: {
-          available: BigInt(amount), // store as bigint
-          locked: 0n,
-        },
-      });
-    } else {
-      userBalance[BASE_CURRENCY].available = userBalance[BASE_CURRENCY].available + BigInt(amount);
-    }
   }
 }

@@ -2,11 +2,11 @@
   "compilerOptions": {
     "target": "ES2020", // Change this to ES2020 or higher
     "module": "CommonJS",
-    "rootDir": "./src",
-    "outDir": "./dist",
     "strict": true,
-    "esModuleInterop": true
+    "esModuleInterop": true,
+    "outDir": "dist",
+    "sourceMap": true
   },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist"]
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules"]
 }

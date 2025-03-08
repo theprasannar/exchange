@@ -19,8 +19,8 @@ model User {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
   // Balances are stored as atomic values:
-  usdcBalance    BigInt    @default(1000000000)  // 1000 USDC (scale 1e6)
-  btcBalance     BigInt    @default(50000000)    // 0.5 BTC (scale 1e8)
+  usdcBalance    BigInt    @default(1000000000000)  
+  btcBalance     BigInt    @default(5000000000)   
 
   orders         Order[]
   trades         Trade[]   @relation("UserTrades")
@@ -109,6 +109,16 @@ model Kline {
   
   @@unique([market, interval, startTime])
 }
+
+model OrderbookSnapshot {
+  id        String   @id @default(uuid())
+  market    String   @unique
+  snapshot  Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt @default(now())
+}
+
+
 
 model AggregatorState {
   id        String   @id @default(uuid())

@@ -14,14 +14,18 @@ import { useRouter } from "next/navigation";
 export default function TradePage() {
   const { market } = useParams();
   const router = useRouter();
-  const { token } = useAuth();
-
+  const { token, isLoading } = useAuth(); // Include isLoading
 
   useEffect(() => {
-    if (!token) {
+    // 🚀 Wait until auth state is loaded before redirecting
+    if (!isLoading && !token) {
       router.push("/auth/signin");
     }
-  }, [token, router]);
+  }, [token, isLoading, router]);
+
+  // 🔹 Avoid rendering UI while loading auth state
+  if (isLoading) return null;
+  
   return (
     <div className="flex w-full h-ful bg-[#0e0f14] text-white justify-center px-8 gap-2">
       <div className="w-full max-w-[90vw] md:max-w-[2100px] h-full mx-auto flex flex-col gap-2">

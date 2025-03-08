@@ -38,7 +38,6 @@ export class RedisManager {
         this.client.subscribe(clientId, async (message) => {
             console.log("Received message in subscribe callback:", message);
             let parsedMessage: any;
-        
             try {
                 parsedMessage = JSON.parse(message);
                 console.log("Parsed Message:", parsedMessage);

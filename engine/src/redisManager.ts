@@ -49,6 +49,11 @@ export class RedisManager {
     this.publisherClient.lPush('db_processor', JSON.stringify(message));
   }
 
+  public async getZRangeByScore(key: string, min: string, max: string): Promise<string[]> {
+    return await this.publisherClient.zRangeByScore(key, min, max);
+  }
+
+  
   /**
    * ============ SUBSCRIBE METHOD ============
    * This puts the "subscriberClient" into subscriber mode for the given channel.

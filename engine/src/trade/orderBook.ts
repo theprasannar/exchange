@@ -7,6 +7,7 @@ export interface Order {
     orderId: string;
     filled: bigint;      
     userId: string;
+    orderType: "limit" | "market";
 }
 
 export interface Fill {
@@ -27,7 +28,8 @@ export class OrderBook {
     baseAssets: string;
     quoteAssets: string;
     lastTradeId: number;     
-    currentPrice: bigint;     
+    currentPrice: bigint;   
+      
 
     constructor(
         baseAssets: string,
@@ -45,7 +47,6 @@ export class OrderBook {
         this.currentPrice = currentPrice;
     }
     ticker(): string {
-      console.log(`${this.baseAssets}_${this.quoteAssets}`);
       return `${this.baseAssets}_${this.quoteAssets}`;
     }
   
@@ -55,6 +56,30 @@ export class OrderBook {
      */
 // orderBook.ts
 
+
+getSnapshot() {
+  return {
+      baseAsset: this.baseAssets,
+      bids: this.bids,
+      asks: this.asks,
+      lastTradeId: this.lastTradeId,
+      currentPrice: this.currentPrice
+  }
+}
+
+ // Unified processing for both limit and market orders.
+ processOrder(order: Order): { executedQty: bigint; fills: Fill[] } {
+  if (order.orderType === "limit") {
+    return this.addOrder(order);
+  } else if (order.orderType === "market") {
+    if (order.side === "buy") {
+      return this.matchMarketBuy(order);
+    } else {
+      return this.matchMarketSell(order);
+    }
+  }
+  throw new Error(`Invalid order type: ${order.orderType}`);
+}
 addOrder(order: Order): { executedQty: bigint; fills: Fill[] } {
 
     let executedQty: bigint;
@@ -100,7 +125,7 @@ private matchBid(order: Order): { fills: Fill[]; executedQty: bigint } {
 
     for (let i = 0; i < this.asks.length; i++) {
         // Price check & quantity check
-        if (this.asks[i].price <= order.price && executedQty < order.quantity) {
+        if (this.asks[i].price <= order.price && executedQty < order.quantity && this.asks[i].userId !== order.userId) {
             // How much is left to fill on this BUY?
             const remaining = order.quantity - executedQty;
             // How much is left in this ask?
@@ -149,7 +174,7 @@ private matchAsk(order: Order): { fills: Fill[]; executedQty: bigint } {
     const fills: Fill[] = [];
 
     for (let i = 0; i < this.bids.length; i++) {
-        if (this.bids[i].price >= order.price && executedQty < order.quantity) {
+      if (this.bids[i].price >= order.price && executedQty < order.quantity && this.bids[i].userId !== order.userId) {
             // How much is left to fill on this SELL?
             const remaining = order.quantity - executedQty;
             // How much is left in this bid?
@@ -186,8 +211,65 @@ private matchAsk(order: Order): { fills: Fill[]; executedQty: bigint } {
     return { fills, executedQty };
 }
 
+// Market order matching ignores the price constraint.
+private matchMarketBuy(order: Order): { fills: Fill[]; executedQty: bigint } {
+  let executedQty: bigint = 0n;
+  const fills: Fill[] = [];
+  // Sort asks by ascending price.
+  this.asks.sort((a, b) => (a.price < b.price ? -1 : 1));
+  for (let i = 0; i < this.asks.length && executedQty < order.quantity; i++) {
+    const ask = this.asks[i];
+    const available = ask.quantity - ask.filled;
+    if (available <= 0n) continue;
+    const needed = order.quantity - executedQty;
+    const fillableQty = needed < available ? needed : available;
+    executedQty += fillableQty;
+    ask.filled += fillableQty;
+    fills.push({
+      price: ask.price,
+      quantity: fillableQty,
+      tradeId: this.lastTradeId++,
+      makerUserId: ask.userId,
+      makerOrderId: ask.orderId,
+      timestamp: Date.now(),
+    });
+    if (ask.filled === ask.quantity) {
+      this.asks.splice(i, 1);
+      i--;
+    }
+  }
+  return { fills, executedQty };
+}
 
- // orderBook.ts
+private matchMarketSell(order: Order): { fills: Fill[]; executedQty: bigint } {
+  let executedQty: bigint = 0n;
+  const fills: Fill[] = [];
+  // Sort bids by descending price.
+  this.bids.sort((a, b) => (a.price > b.price ? -1 : 1));
+  for (let i = 0; i < this.bids.length && executedQty < order.quantity; i++) {
+    const bid = this.bids[i];
+    const available = bid.quantity - bid.filled;
+    if (available <= 0n) continue;
+    const needed = order.quantity - executedQty;
+    const fillableQty = needed < available ? needed : available;
+    executedQty += fillableQty;
+    bid.filled += fillableQty;
+    fills.push({
+      price: bid.price,
+      quantity: fillableQty,
+      tradeId: this.lastTradeId++,
+      makerUserId: bid.userId,
+      makerOrderId: bid.orderId,
+      timestamp: Date.now(),
+    });
+    if (bid.filled === bid.quantity) {
+      this.bids.splice(i, 1);
+      i--;
+    }
+  }
+  return { fills, executedQty };
+}
+
 
  public getDepth(): { bids: [string, string][]; asks: [string, string][] } {
     const bidsObj: Record<string, bigint> = {};

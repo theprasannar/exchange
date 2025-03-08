@@ -1,7 +1,7 @@
 import { createAsyncThunk, createSlice, PayloadAction } from "@reduxjs/toolkit";
 import { getTicker } from "../lib/api"; // Assume this API returns ticker data
 import { SignalingManager } from "../utils/SignalingManager";
-import { atomicToUsdc } from "../utils/currency";
+import { atomicToBtc, atomicToUsdc } from "../utils/currency";
 
 // Define the shape of our ticker state.
 export interface TickerState {
@@ -28,13 +28,13 @@ export const fetchTickerData = createAsyncThunk(
   async (market: string, { rejectWithValue }) => {
     try {
       const data = await getTicker(market);
-      console.log(" data:", data)
+      console.log(" data:", data) 
       // Assume data has properties c, h, l, v, s, id (all as strings/numbers) in atomic format
       return {
         lastPrice: atomicToUsdc(BigInt(data.currentPrice)),
         high: atomicToUsdc(BigInt(data.high)),
         low: atomicToUsdc(BigInt(data.low)),
-        volume: data.volume, // volume can remain as is or be converted if needed
+        volume: atomicToBtc(BigInt(data.volume)), // volume can remain as is or be converted if needed
         symbol: data.symbol
       };
     } catch (error) {
@@ -85,7 +85,7 @@ export const subscribeTicker = (market: string) => (dispatch: any) => {
         lastPrice: data.c ? atomicToUsdc(BigInt(data.c)) : "0",
         high: data.h ? atomicToUsdc(BigInt(data.h)) : "0",
         low: data.l ? atomicToUsdc(BigInt(data.l)) : "0",
-        volume: data.v || "0",
+        volume: atomicToBtc(BigInt(data.v)) || "0",
         symbol: data.s || market,
         updatedAt: data.id,
       })

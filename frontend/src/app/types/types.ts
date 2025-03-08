@@ -40,6 +40,13 @@ export interface Ticker {
     "volume": string
 }
 
+export interface TickerFromEngine {
+    currentPrice: string,
+    high: string,
+    low: string,
+    volume: string,
+    symbol: string,
+}
 export interface Candle {
     market?: string;
     interval?: string;
