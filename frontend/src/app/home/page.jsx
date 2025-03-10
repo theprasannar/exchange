@@ -59,7 +59,7 @@ export default function Home() {
             <p className="text-gray-300 mb-6 text-lg">
               Trade Bitcoin, Ethereum, and your favorite assets instantly.
             </p>
-            <button className="bg-green-500 text-[#121418] px-6 py-3 rounded-md text-lg font-semibold transition-colors">
+            <button className="bg-green-500 text-[#121418] px-6 py-3 cursor-none rounded-md text-lg font-semibold transition-colors">
               Trade Now
             </button>
           </div>

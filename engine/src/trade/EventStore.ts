@@ -15,14 +15,11 @@ export interface Event {
 export class EventStore {
 
     static async publishEvent(event: Event): Promise<void> {
-       try {;
-        RedisManager.getInstance().publishMessage('event_store', {
-            type: event.type,
-            data: event,
-        });
-        console.log(`EventStore: Published event ${event.id} of type ${event.type}`);
-       } catch (error) {
-        console.error("EventStore: Failed to publish event", event.id, error);
-       }
+        try {
+            await RedisManager.getInstance().pushEvent('event_store', JSON.stringify(event));
+            console.log(`EventStore: Published event ${event.id} of type ${event.type}`);
+        } catch (error) {
+            console.error("EventStore: Failed to publish event", event.id, error);
+        }
     }
 }

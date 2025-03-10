@@ -56,19 +56,41 @@ async function processOrderCreate(data: any): Promise<void> {
   }
 }
 
+// dbProcessor.ts (or wherever you have your DB processing logic)
+
 async function processBalanceUpdate(data: any): Promise<void> {
+  console.log('Process')
   try {
+    // data has { userId, asset, available, locked? }
+    // For demonstration, let's handle USDC and BTC.
     if (data.asset === "USDC") {
       await prisma.user.update({
         where: { id: data.userId },
         data: { usdcBalance: BigInt(data.available) },
       });
+    } else if (data.asset === "BTC") {
+      await prisma.user.update({
+        where: { id: data.userId },
+        data: { btcBalance: BigInt(data.available) },
+      });
+    } else {
+      // If your schema allows more columns or a dynamic approach:
+      console.warn(
+        `DB Processor: Balance update for unknown asset ${data.asset}. Skipping.`
+      );
+      // Alternatively, handle it if your schema has a flexible approach or extra columns
     }
-    console.log(`DB Processor: Balance updated for user ${data.userId}`);
+
+    console.log(
+      `DB Processor: Balance updated for user=${data.userId} asset=${data.asset}`
+    );
   } catch (error) {
-    throw new Error(`DB Processor: Failed to update balance for user ${data.userId}: ${error}`);
+    throw new Error(
+      `DB Processor: Failed to update balance for user ${data.userId}, asset ${data.asset}: ${error}`
+    );
   }
 }
+
 
 async function processTradeExecuted(data: any): Promise<void> {
   try {
@@ -159,6 +181,7 @@ async function consumeEvents() {
     try {
       // Blocking pop from the "event_store" list
       const result = await redisClient.brPop("event_store", 0);
+      console.log(" consumeEvents ~ result:", result)
       if (result) {
         const message = result.element;
         const event: Event = JSON.parse(message);

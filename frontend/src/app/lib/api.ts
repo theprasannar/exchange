@@ -61,3 +61,19 @@ export async function signup(email: string, password: string)  {
     const data = response.data;
     return data;
 }
+
+export async function getUserBalance(userId: string): Promise<{
+  USDC: { available: string; locked: string };
+  BTC: { available: string; locked: string };
+}> {
+  const response = await axios.get(`${BASE_URL}/users/balance/${userId}`);
+  return response.data;
+}
+
+export async function addBalance(userId: string, amount: string): Promise<any> {
+  const response = await axios.post(`${BASE_URL}/balance/onramp`, {
+    userId,
+    amount
+  });
+  return response.data;
+}

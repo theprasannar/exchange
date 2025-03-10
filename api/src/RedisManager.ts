@@ -39,28 +39,35 @@ export class RedisManager {
             console.log("Received message in subscribe callback:", message);
             let parsedMessage: any;
             try {
-                parsedMessage = JSON.parse(message);
-                console.log("Parsed Message:", parsedMessage);
+              parsedMessage = JSON.parse(message);
+              console.log("Parsed Message:", parsedMessage);
             } catch (error) {
-                console.error(`Error parsing message from ${clientId}:`, message);
-                return;
+              console.error(`Error parsing message from ${clientId}:`, message);
+              return;
             }
-        
+            
+            // Only process the message if it contains the expected properties
+            if (!parsedMessage || !parsedMessage.payload || Object.keys(parsedMessage.payload).length === 0) {
+              console.log("Ignoring incomplete message:", parsedMessage);
+              return; // wait for the correct message
+            }
+            
             if (timer) clearTimeout(timer);
-        
+            
             try {
-                await this.client.unsubscribe(clientId);
-                console.log(`Unsubscribed from ${clientId}`);
+              await this.client.unsubscribe(clientId);
+              console.log(`Unsubscribed from ${clientId}`);
             } catch (error) {
-                console.error(`Error unsubscribing from ${clientId}:`, error);
+              console.error(`Error unsubscribing from ${clientId}:`, error);
             }
-        
-            resolve(parsedMessage); // Resolving the parsed message
-        }).catch(error => {
+            
+            resolve(parsedMessage);
+          }).catch(error => {
             if (timer) clearTimeout(timer);
             console.error(`Failed to subscribe to ${clientId}:`, error);
             reject(error);
-        });
+          });
+          
 
         this.publisher.lPush('message', JSON.stringify({
             clientId: clientId,

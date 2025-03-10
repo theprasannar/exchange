@@ -53,6 +53,10 @@ export class RedisManager {
     return await this.publisherClient.zRangeByScore(key, min, max);
   }
 
+  public async pushEvent(key: string, value: string): Promise<void> {
+    await this.publisherClient.lPush(key, value);
+  }
+
   
   /**
    * ============ SUBSCRIBE METHOD ============

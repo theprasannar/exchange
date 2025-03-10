@@ -50,7 +50,7 @@ export default function SignupPage() {
           />
           <button
             type="submit"
-            className="w-full bg-gradient-to-r from-blue-500 to-purple-500 text-white py-3 rounded-lg transition-all duration-300 shadow-lg hover:shadow-black/50 font-semibold"
+            className="w-full bg-green-600 text-white py-3 rounded-lg transition-all duration-300 shadow-lg hover:shadow-black/50 font-semibold"
           >
             Sign Up
           </button>

@@ -59,3 +59,31 @@ export type MessageToAPI = {
       symbol?: string; 
     }
   }
+  | {
+    type: "GET_USER_BALANCE";
+    payload: {
+      [asset: string]: {
+        available: bigint;
+        locked: bigint;
+      }
+    };
+  }
+  | {
+    type: "ERROR";
+    payload: {
+      error: string;
+    };
+  }
+  | {
+    type: "ON_RAMP_SUCCESS";
+    payload: {
+      userId: string;
+      amount: string;
+    };
+  }
+| {
+    type: "ON_RAMP_REJECTED";
+    payload: {
+      reason: string;
+    };
+  }

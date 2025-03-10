@@ -123,7 +123,7 @@ function scheduleRandomOrder() {
   const orderData = generateRandomOrder();
   sendOrder(orderData);
 
-  const delay = randomInt(3000, 10000); // 3–10 seconds
+  const delay = randomInt(1000,2000); // 3–10 seconds
   console.log(`[${new Date().toISOString()}] Next order in ${delay}ms`);
   setTimeout(scheduleRandomOrder, delay);
 }

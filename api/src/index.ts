@@ -5,6 +5,8 @@ import tickerRoutes from './routes/tickerRoutes'
 import tradeRoutes from "./routes/tradeRoutes"; 
 import klineRoutes from "./routes/klineRoutes"; 
 import authRoutes from "./routes/authRoutes";
+import userRoutes from './routes/userRoutes';
+import balanceRoutes from './routes/balanceRoutes';
 
 
 
@@ -25,6 +27,8 @@ app.use('/api/v1/ticker', tickerRoutes);
 app.use("/api/v1/trades", tradeRoutes);
 app.use("/api/v1/klines", klineRoutes);
 app.use("/api/v1/auth", authRoutes);
+app.use('/api/v1/users', userRoutes);
+app.use('/api/v1/balance', balanceRoutes);
 
 
 
