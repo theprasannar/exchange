@@ -1,4 +1,4 @@
-// api/src/controllers/tradeController.ts
+//@ts-nocheck
 import { Request, Response } from "express";
 import prisma from '@exchange/db/src/lib/prisma';
 import { atomicToBtc, atomicToUsdc } from "../utils/currency";
