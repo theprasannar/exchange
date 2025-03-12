@@ -1,10 +1,10 @@
 {
-  "name": "frontend",
+  "name": "@exchange/frontend",
   "version": "0.1.0",
   "private": true,
   "scripts": {
     "dev": "next dev --turbopack",
-    "build": "next build",
+    "build": "TS_NODE_IGNORE_WARNINGS=1 SKIP_TYPECHECK=1 tsc --noEmit && next build",
     "start": "next start",
     "lint": "next lint"
   },

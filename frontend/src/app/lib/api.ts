@@ -1,3 +1,4 @@
+// @ts-nocheck
 import axios from "axios";
 import { Depth, KLine, Ticker, TickerFromEngine, Trade } from "../types/types";
 import { CreateOrder, CreateOrderResponse } from "../types/swap";

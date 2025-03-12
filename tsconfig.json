@@ -1,0 +1,16 @@
+// exchange/tsconfig.json (the root)
+{
+  "files": [],
+  "references": [
+    { "path": "db" },
+    { "path": "api" },
+    { "path": "engine" },
+    { "path": "ws" }
+  ],
+  "compilerOptions": {
+    "baseUrl": ".", 
+    "paths": {
+      "db/*": ["db/src/*"]  // Let TS map "db/lib/prisma" -> "db/src/lib/prisma.ts"
+    }
+  }
+}

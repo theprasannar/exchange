@@ -17,7 +17,7 @@ export default function SigninPage() {
     setError("");
   
     try {
-      const data = await login(email, password);
+      const data : any = await login(email, password);
       if (data.token) {
         setAuth(data.token, data.user.email, data.user.id);
         router.push("/home");

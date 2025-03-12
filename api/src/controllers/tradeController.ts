@@ -1,6 +1,6 @@
 // api/src/controllers/tradeController.ts
 import { Request, Response } from "express";
-import prisma from "db/lib/prisma"; 
+import prisma from '@exchange/db/src/lib/prisma';
 import { atomicToBtc, atomicToUsdc } from "../utils/currency";
 
 const formatTime = (isoTimestamp: string): string => {

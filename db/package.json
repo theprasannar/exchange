@@ -1,9 +1,11 @@
 {
-  "name": "db",
+  "name": "@exchange/db",
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "tsc",
+    "migrate:dev": "npx prisma migrate dev",
+    "generate": "npx prisma generate"
   },
   "keywords": [],
   "author": "",
@@ -17,6 +19,8 @@
     "redis": "^4.7.0"
   },
   "devDependencies": {
+    "@types/axios": "^0.9.36",
+    "@types/cors": "^2.8.17",
     "@types/pg": "^8.11.10",
     "@types/redis": "^4.0.10"
   }

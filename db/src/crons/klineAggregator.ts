@@ -73,7 +73,7 @@ async function aggregateInterval(market: string, interval: string, durationMinut
     for (const [bucketIso, trades] of bucketTrades.entries()) {
         if (trades.length === 0) continue;
 
-        trades.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime())
+        trades.sort((a : any, b: any) => a.timestamp.getTime() - b.timestamp.getTime())
 
         const openPrice = trades[0].price;
         const closePrice = trades[trades.length - 1].price;

@@ -1,15 +1,14 @@
 {
   "compilerOptions": {
-    "target": "ES2020",  // Update this to ES2020 or later
+    "composite": true,
+    "declaration": true,
+    "declarationMap": false, // optional
+    "rootDir": "src",
+    "outDir": "dist",
+    "target": "ES2020",
     "module": "CommonJS",
-    "paths": {
-      "@db/*": ["../../db/src/*"]
-    },
-    "rootDir": "./src",
-    "outDir": "./dist",
     "strict": true,
     "esModuleInterop": true
   },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist"]
+  "include": ["src/**/*"]
 }

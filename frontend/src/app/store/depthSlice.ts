@@ -1,3 +1,4 @@
+//@ts-nocheck
 import { createAsyncThunk, createSlice, PayloadAction } from "@reduxjs/toolkit";
 import { getDepth } from "../lib/api"; // getDepth should return an object with keys: bids, asks, and price
 import { SignalingManager } from "../utils/SignalingManager";

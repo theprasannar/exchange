@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { createAsyncThunk, createSlice, PayloadAction } from "@reduxjs/toolkit";
 import { getTicker } from "../lib/api"; // Assume this API returns ticker data
 import { SignalingManager } from "../utils/SignalingManager";

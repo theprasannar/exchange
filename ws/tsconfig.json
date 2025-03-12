@@ -1,12 +1,16 @@
 {
   "compilerOptions": {
-    "target": "ES6",
+    "composite": true,
+    "skipLibCheck": true, // <-- Add this
+    "rootDir": "src",
+    "outDir": "dist",
+    "target": "ES2020",
     "module": "CommonJS",
-    "esModuleInterop": true,
-    "allowSyntheticDefaultImports": true,
-    "outDir": "./dist",
-    "rootDir": "./src"
+    "strict": true,
+    "esModuleInterop": true
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist"]
+  "references": [
+    { "path": "../db" }
+  ]
 }

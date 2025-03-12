@@ -1,5 +1,5 @@
 import { Request, Response } from 'express';
-import prisma from "db/lib/prisma"; 
+import prisma from '@exchange/db/src/lib/prisma';
 
 
 

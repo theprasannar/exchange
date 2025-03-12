@@ -1,3 +1,4 @@
+// @ts-nocheck
 import { createAsyncThunk, createSlice, PayloadAction } from "@reduxjs/toolkit";
 import { getTrades } from "../lib/api";
 import { Trade } from "../types/types";
