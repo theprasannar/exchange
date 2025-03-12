@@ -1,12 +1,22 @@
 {
   "compilerOptions": {
-    "target": "ES6",
+    "composite": true,
+    "disableSourceOfProjectReferenceRedirect": true, // <-- THIS fixes TS6305
+    "rootDir": "src",
+    "outDir": "dist",
+    "target": "ES2020",
     "module": "CommonJS",
     "strict": true,
     "esModuleInterop": true,
-    "outDir": "dist",
-    "sourceMap": true
+    "skipLibCheck": true,
+    "moduleResolution": "node",
+    "baseUrl": ".",
+    "paths": {
+      "db/*": ["../db/src/*"]
+    }
   },
-  "include": ["src/**/*.ts"],
-  "exclude": ["node_modules"]
+  "include": ["src/**/*"],
+  "references": [
+    { "path": "../db" } // compile db first
+  ]
 }

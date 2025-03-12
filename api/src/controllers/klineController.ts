@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
-import prisma from "../../../db/src/lib/prisma"; 
+import prisma from "db/lib/prisma"; 
+
 
 
 export const getKlineData = async (req: Request, res: Response): Promise<any> => {
@@ -27,7 +28,7 @@ export const getKlineData = async (req: Request, res: Response): Promise<any> =>
     });
 
     // transform BigInt -> string
-    const response = klines.map(k => ({
+    const response = klines.map((k: any) => ({
       market: k.market,
       interval: k.interval,
       open: k.open.toString(),
