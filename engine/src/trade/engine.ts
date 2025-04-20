@@ -1,15 +1,24 @@
-import { Fill, Order, OrderBook } from './orderBook';
-import { RedisManager } from '../redisManager';
-import { ORDER_CREATE, ORDER_UPDATE, TRADE_ADDED } from '../types';
-import { CANCEL_ORDER, CREATE_ORDER, GET_DEPTH, GET_OPEN_ORDERS, GET_TICKER_DETAILS, MessageFromAPI, ON_RAMP, GET_USER_BALANCE } from '../types/MessageFromAPI';
-import { BTC_SCALE, mulDiv } from '../utils/currency';
-import { tickerAggregator } from './tickerAggregator';
-import { initRealTimeKlineAggregator } from './realTimeKline';
-import prisma from '@exchange/db/src/lib/prisma';
-import { EventStore, Event } from './EventStore';
+import { Fill, Order, OrderBook } from "./orderBook";
+import { RedisManager } from "../redisManager";
+import { ORDER_CREATE, ORDER_UPDATE, TRADE_ADDED } from "../types";
+import {
+  CANCEL_ORDER,
+  CREATE_ORDER,
+  GET_DEPTH,
+  GET_OPEN_ORDERS,
+  GET_TICKER_DETAILS,
+  MessageFromAPI,
+  ON_RAMP,
+  GET_USER_BALANCE,
+} from "../types/MessageFromAPI";
+import { BTC_SCALE, mulDiv } from "../utils/currency";
+import { tickerAggregator } from "./tickerAggregator";
+import { initRealTimeKlineAggregator } from "./realTimeKline";
+import prisma from "@exchange/db/dist/lib/prisma";
+import { EventStore, Event } from "./EventStore";
 
 // Just to avoid TS errors about crypto:
-import crypto from 'crypto'; // Make sure you import or require 'crypto' if you're in Node
+import crypto from "crypto"; // Make sure you import or require 'crypto' if you're in Node
 
 export const BASE_CURRENCY = "USDC";
 
@@ -58,10 +67,10 @@ export class Engine {
   }
 
   /**
- * This function sets up periodic tasks to snapshot orderbooks
- * and reconcile balances every N seconds/minutes. Adjust the interval
- * to suit your production needs (e.g., once every 5 minutes).
- */
+   * This function sets up periodic tasks to snapshot orderbooks
+   * and reconcile balances every N seconds/minutes. Adjust the interval
+   * to suit your production needs (e.g., once every 5 minutes).
+   */
   private setupPeriodicTasks() {
     const INTERVAL_MS = 1000 * 10; // 5 minutes example
 
@@ -83,11 +92,9 @@ export class Engine {
       }
     }, INTERVAL_MS);
   }
-  getSupportedMarkers(): Array<{ base: string, quote: string }> {
+  getSupportedMarkers(): Array<{ base: string; quote: string }> {
     // If you want more markets, add them here
-    return [
-      { base: "BTC", quote: BASE_CURRENCY }
-    ]
+    return [{ base: "BTC", quote: BASE_CURRENCY }];
   }
 
   async initialize() {
@@ -125,11 +132,11 @@ export class Engine {
   async recoverState() {
     for (const orderBook of this.orderBooks) {
       const market = orderBook.ticker();
-      console.log(" recoverState ~ market:", market)
+      console.log(" recoverState ~ market:", market);
       try {
-        const snapshotRecord = await prisma.orderbookSnapshot.findUnique({
+        const snapshotRecord = (await prisma.orderbookSnapshot.findUnique({
           where: { market },
-        }) as OrderbookSnapshot | null;
+        })) as OrderbookSnapshot | null;
 
         if (!snapshotRecord || !snapshotRecord.snapshot) {
           console.log(`Engine: No snapshot found for market ${market}`);
@@ -158,9 +165,11 @@ export class Engine {
         // Replay events from Redis that happened after the snapshot timestamp
         const snapshotTimestamp = snapshotRecord.updatedAt.getTime();
         await this.loadEventsFromRedis(snapshotTimestamp);
-
       } catch (error) {
-        console.error(`Engine: Error loading snapshot for market ${market}:`, error);
+        console.error(
+          `Engine: Error loading snapshot for market ${market}:`,
+          error
+        );
       }
     }
   }
@@ -173,7 +182,7 @@ export class Engine {
         minScore,
         "+inf"
       );
-      const events = eventsJson.map(json => JSON.parse(json));
+      const events = eventsJson.map((json) => JSON.parse(json));
       events.sort((a, b) => a.timestamp - b.timestamp);
       console.log(`Engine: Replaying ${events.length} events from Redis`);
       for (const event of events) {
@@ -193,9 +202,11 @@ export class Engine {
       case ORDER_CREATE: {
         const data = event.data;
         const market = data.market;
-        const orderbook = this.orderBooks.find(o => o.ticker() === market);
+        const orderbook = this.orderBooks.find((o) => o.ticker() === market);
         if (!orderbook) {
-          console.warn(`Engine: Orderbook for market ${market} not found during event replay.`);
+          console.warn(
+            `Engine: Orderbook for market ${market} not found during event replay.`
+          );
           return;
         }
         // Reconstruct the order object from the event data.
@@ -205,8 +216,8 @@ export class Engine {
           side: data.side,
           price: BigInt(data.price),
           quantity: BigInt(data.quantity),
-          filled: 0n,  // Assume no fills initially
-          orderType: data.orderType,  // "limit" or "market"
+          filled: 0n, // Assume no fills initially
+          orderType: data.orderType, // "limit" or "market"
         };
         // Replay by processing the order on the orderbook.
         orderbook.processOrder(order);
@@ -215,19 +226,24 @@ export class Engine {
       case ORDER_UPDATE: {
         const data = event.data;
         const market = data.market;
-        const orderbook = this.orderBooks.find(o => o.ticker() === market);
+        const orderbook = this.orderBooks.find((o) => o.ticker() === market);
         if (!orderbook) {
-          console.warn(`Engine: Orderbook for market ${market} not found during ORDER_UPDATE replay.`);
+          console.warn(
+            `Engine: Orderbook for market ${market} not found during ORDER_UPDATE replay.`
+          );
           return;
         }
         // Find the order in bids or asks.
-        let order = orderbook.bids.find(o => o.orderId === data.orderId) ||
-          orderbook.asks.find(o => o.orderId === data.orderId);
+        let order =
+          orderbook.bids.find((o) => o.orderId === data.orderId) ||
+          orderbook.asks.find((o) => o.orderId === data.orderId);
         if (order) {
           // Update the order's filled quantity.
           order.filled = BigInt(data.executedQty);
         } else {
-          console.warn(`Engine: Order ${data.orderId} not found in memory for ORDER_UPDATE replay.`);
+          console.warn(
+            `Engine: Order ${data.orderId} not found in memory for ORDER_UPDATE replay.`
+          );
         }
         break;
       }
@@ -263,11 +279,13 @@ export class Engine {
       data: {
         userId,
         asset: BASE_CURRENCY,
-        available: this.balance.get(userId)![BASE_CURRENCY].available.toString(),
+        available: this.balance
+          .get(userId)!
+          [BASE_CURRENCY].available.toString(),
         locked: this.balance.get(userId)![BASE_CURRENCY].locked.toString(),
       },
-      timestamp: Date.now()
-    }
+      timestamp: Date.now(),
+    };
     await EventStore.publishEvent(event);
   }
 
@@ -294,13 +312,25 @@ export class Engine {
   /**
    * Main router for messages from the API/WebSocket.
    */
-  public async process({ message, clientId }: { message: MessageFromAPI, clientId: string }) {
+  public async process({
+    message,
+    clientId,
+  }: {
+    message: MessageFromAPI;
+    clientId: string;
+  }) {
     switch (message.type) {
       case CREATE_ORDER:
         try {
-          const { market, quantity, price, side, userId, orderType } = message.data;
+          const { market, quantity, price, side, userId, orderType } =
+            message.data;
           const { executedQty, fills, orderId } = await this.createOrder(
-            market, quantity, price, side, userId, orderType
+            market,
+            quantity,
+            price,
+            side,
+            userId,
+            orderType
           );
 
           // Respond success
@@ -309,12 +339,12 @@ export class Engine {
             payload: {
               orderId,
               executedQty: executedQty.toString(),
-              fills: fills.map(fill => ({
+              fills: fills.map((fill) => ({
                 price: fill.price.toString(),
                 quantity: fill.quantity.toString(),
-                tradeId: fill.tradeId
-              }))
-            }
+                tradeId: fill.tradeId,
+              })),
+            },
           });
 
           // 1) Reconcile balances (ensures no mismatch if there's any DB or memory drift)
@@ -322,14 +352,16 @@ export class Engine {
 
           // 2) Snapshot the orderbook after the new order
           await this.snapshotOrderbook(market);
-
         } catch (error) {
           console.log(error);
           RedisManager.getInstance().sendToApi(clientId, {
             type: "ORDER_REJECTED",
             payload: {
-              reason: error instanceof Error ? error.message : 'Unknown error occurred'
-            }
+              reason:
+                error instanceof Error
+                  ? error.message
+                  : "Unknown error occurred",
+            },
           });
         }
         break;
@@ -354,26 +386,27 @@ export class Engine {
             throw new Error("User ID not specified or invalid");
           }
 
-          const openOrderbook = this.orderBooks.find(o => o.ticker() === market);
+          const openOrderbook = this.orderBooks.find(
+            (o) => o.ticker() === market
+          );
           if (!openOrderbook) {
             throw new Error(`No orderbook found for market: ${market}`);
           }
 
           const openOrders = openOrderbook.getOpenOrders(userId);
-          const payload = openOrders.map(order => ({
+          const payload = openOrders.map((order) => ({
             orderId: order.orderId,
             filled: order.filled.toString(),
             price: order.price.toString(),
             quantity: order.quantity.toString(),
             side: order.side,
-            userId: order.userId
+            userId: order.userId,
           }));
 
           RedisManager.getInstance().sendToApi(clientId, {
             type: "OPEN_ORDERS",
-            payload
+            payload,
           });
-
         } catch (error) {
           console.error("Error getting open orders:", error);
         }
@@ -390,16 +423,19 @@ export class Engine {
             type: "ON_RAMP_SUCCESS",
             payload: {
               userId,
-              amount: amount.toString()
-            }
+              amount: amount.toString(),
+            },
           });
         } catch (error) {
           console.error("Error in onRamp:", error);
           RedisManager.getInstance().sendToApi(clientId, {
             type: "ON_RAMP_REJECTED",
             payload: {
-              reason: error instanceof Error ? error.message : 'Unknown error occurred'
-            }
+              reason:
+                error instanceof Error
+                  ? error.message
+                  : "Unknown error occurred",
+            },
           });
         }
         break;
@@ -410,14 +446,14 @@ export class Engine {
           if (!market || typeof market !== "string") {
             throw new Error("Invalid or missing market parameter");
           }
-          const orderBook = this.orderBooks.find(o => o.ticker() === market);
+          const orderBook = this.orderBooks.find((o) => o.ticker() === market);
           if (!orderBook) {
             throw new Error(`No OrderBook found for market: ${market}`);
           }
           const depth = orderBook.getDepth();
           RedisManager.getInstance().sendToApi(clientId, {
             type: "DEPTH",
-            payload: depth
+            payload: depth,
           });
         } catch (error) {
           console.log(error);
@@ -426,7 +462,7 @@ export class Engine {
             payload: {
               bids: [],
               asks: [],
-            }
+            },
           });
         }
         break;
@@ -446,7 +482,7 @@ export class Engine {
                 high: "0",
                 low: "0",
                 volume: "0",
-              }
+              },
             });
             return;
           }
@@ -457,8 +493,8 @@ export class Engine {
               high: tickerData.high.toString(),
               low: tickerData.low.toString(),
               volume: tickerData.volume.toString(),
-              symbol: market
-            }
+              symbol: market,
+            },
           });
         } catch (error) {
           console.error("Error fetching ticker data:", error);
@@ -469,7 +505,7 @@ export class Engine {
               high: "0",
               low: "0",
               volume: "0",
-            }
+            },
           });
         }
         break;
@@ -478,7 +514,7 @@ export class Engine {
         try {
           const { userId } = message.data;
           const userBalance = this.balance.get(userId);
-          console.log(" process ~ userBalance:", userBalance)
+          console.log(" process ~ userBalance:", userBalance);
 
           if (!userBalance) {
             throw new Error(`No balance found for user ${userId}`);
@@ -486,15 +522,18 @@ export class Engine {
 
           RedisManager.getInstance().sendToApi(clientId, {
             type: "GET_USER_BALANCE",
-            payload: this.formatBalanceForTransport(userBalance)
+            payload: this.formatBalanceForTransport(userBalance),
           });
         } catch (error) {
           console.error("Error getting user balance:", error);
           RedisManager.getInstance().sendToApi(clientId, {
             type: "ERROR",
             payload: {
-              error: error instanceof Error ? error.message : 'Unknown error occurred'
-            }
+              error:
+                error instanceof Error
+                  ? error.message
+                  : "Unknown error occurred",
+            },
           });
         }
         break;
@@ -520,12 +559,11 @@ export class Engine {
     userId: string,
     orderType: "limit" | "market"
   ): Promise<{ executedQty: bigint; fills: Fill[]; orderId: string }> {
-
-    const orderbook = this.orderBooks.find(ob => ob.ticker() === market);
+    const orderbook = this.orderBooks.find((ob) => ob.ticker() === market);
     if (!orderbook) throw new Error(`No OrderBook found for ${market}`);
 
     const quantity = BigInt(rawQuantity);
-    const price = (orderType === "limit") ? BigInt(rawPrice) : 0n;
+    const price = orderType === "limit" ? BigInt(rawPrice) : 0n;
     const localOrderId = crypto.randomUUID();
 
     // 1) Publish ORDER_CREATE event to event store
@@ -548,14 +586,25 @@ export class Engine {
     // 2) Lock user funds
     const [baseAsset, quoteAsset] = market.split("_");
     if (orderType === "limit") {
-      this.checkAndLockFunds(baseAsset, quoteAsset, userId, price, side, quantity);
+      this.checkAndLockFunds(
+        baseAsset,
+        quoteAsset,
+        userId,
+        price,
+        side,
+        quantity
+      );
     } else {
       // Market order logic:
       if (side === "buy") {
         // Lock all available quote
         const userBalances = this.balance.get(userId);
-        if (!userBalances) throw new Error(`No balance found for user ${userId}`);
-        const estimatedCode = this.getEstimatedBuyCostForMarket(orderbook, quantity)
+        if (!userBalances)
+          throw new Error(`No balance found for user ${userId}`);
+        const estimatedCode = this.getEstimatedBuyCostForMarket(
+          orderbook,
+          quantity
+        );
         if (userBalances[quoteAsset].available < estimatedCode) {
           throw new Error(`Insufficient ${quoteAsset} balance`);
         }
@@ -564,7 +613,14 @@ export class Engine {
         userBalances[quoteAsset].locked += estimatedCode;
       } else {
         // Market sell => lock exactly the baseAsset
-        this.checkAndLockFunds(baseAsset, quoteAsset, userId, 0n, side, quantity);
+        this.checkAndLockFunds(
+          baseAsset,
+          quoteAsset,
+          userId,
+          0n,
+          side,
+          quantity
+        );
       }
     }
 
@@ -579,7 +635,6 @@ export class Engine {
       orderType,
     };
     const { executedQty, fills } = orderbook.processOrder(order);
-
 
     // 4) Update balances in memory for taker & maker(s)
     this.updateBalance(userId, baseAsset, quoteAsset, side, fills);
@@ -598,13 +653,13 @@ export class Engine {
     this.updateDbOrders(order, executedQty, fills, market);
 
     // 7) Publish real-time websockets for depth/trades/ticker
-// 7) Publish real-time WebSocket updates for depth/trades/ticker
-if (orderType === "market") {
-  // For market orders, update depth for all affected price levels
-  this.publishWsMarketDepthUpdate(fills, market);
-} else {
-  this.publishWsDepthUpdates(fills, price, side, market);
-}
+    // 7) Publish real-time WebSocket updates for depth/trades/ticker
+    if (orderType === "market") {
+      // For market orders, update depth for all affected price levels
+      this.publishWsMarketDepthUpdate(fills, market);
+    } else {
+      this.publishWsDepthUpdates(fills, price, side, market);
+    }
     this.publishWsTrades(fills, market, userId);
     this.updateAndPublishTicker(fills, market);
 
@@ -612,7 +667,9 @@ if (orderType === "market") {
   }
 
   getEstimatedBuyCostForMarket(orderbook: OrderBook, quantity: bigint): bigint {
-    const asksCopy = [...orderbook.asks].sort((a, b) => (a.price < b.price ? -1 : 1));
+    const asksCopy = [...orderbook.asks].sort((a, b) =>
+      a.price < b.price ? -1 : 1
+    );
     let estimateCost = 0n;
     let remainingQuantity = quantity;
     for (const ask of asksCopy) {
@@ -620,14 +677,17 @@ if (orderType === "market") {
       const available = ask.quantity - ask.filled;
       if (available <= 0n) continue;
 
-      const fillQty = available < remainingQuantity ? available : remainingQuantity;
+      const fillQty =
+        available < remainingQuantity ? available : remainingQuantity;
       estimateCost += mulDiv(ask.price, fillQty, BTC_SCALE.toString());
       remainingQuantity -= fillQty;
 
       if (remainingQuantity == 0n) break;
     }
-    if(remainingQuantity > 0n) {
-      throw new Error(`Not enough liquidity available to fill the market order`);
+    if (remainingQuantity > 0n) {
+      throw new Error(
+        `Not enough liquidity available to fill the market order`
+      );
     }
     return estimateCost;
   }
@@ -668,14 +728,15 @@ if (orderType === "market") {
    * Cancel an existing order and free up locked balances.
    */
   public cancelOrder(orderId: string, market: string, clientId: string) {
-    const cancelOrderbook = this.orderBooks.find(o => o.ticker() === market);
+    const cancelOrderbook = this.orderBooks.find((o) => o.ticker() === market);
     if (!cancelOrderbook) {
       throw new Error("No orderbook found");
     }
 
     const [baseAsset, quoteAsset] = market.split("_");
-    const order = cancelOrderbook.asks.find(o => o.orderId === orderId)
-      || cancelOrderbook.bids.find(o => o.orderId === orderId);
+    const order =
+      cancelOrderbook.asks.find((o) => o.orderId === orderId) ||
+      cancelOrderbook.bids.find((o) => o.orderId === orderId);
     if (!order) {
       throw new Error("Order not found");
     }
@@ -697,7 +758,7 @@ if (orderType === "market") {
       const price = cancelOrderbook.cancelAsk(order);
       if (!price) throw new Error("Order price not found");
 
-      const leftoverLocked = (order.quantity - order.filled);
+      const leftoverLocked = order.quantity - order.filled;
       const userBalances = this.balance.get(order.userId);
       if (!userBalances) throw new Error(`User ${order.userId} not found`);
       userBalances[baseAsset].available += leftoverLocked;
@@ -712,8 +773,8 @@ if (orderType === "market") {
       payload: {
         orderId,
         executedQty: order.filled.toString(),
-        remainingQty: (order.quantity - order.filled).toString()
-      }
+        remainingQty: (order.quantity - order.filled).toString(),
+      },
     });
   }
 
@@ -738,7 +799,11 @@ if (orderType === "market") {
         if (!makerBalances) continue;
 
         // quote to maker, base to taker
-        const quoteAmount = mulDiv(fill.price, fill.quantity, BTC_SCALE.toString());
+        const quoteAmount = mulDiv(
+          fill.price,
+          fill.quantity,
+          BTC_SCALE.toString()
+        );
 
         // Maker = seller
         makerBalances[quoteAsset].available += quoteAmount;
@@ -755,7 +820,11 @@ if (orderType === "market") {
         if (!makerBalances) continue;
 
         // Buyer locked some quote
-        const quoteAmount = mulDiv(fill.price, fill.quantity, BTC_SCALE.toString());
+        const quoteAmount = mulDiv(
+          fill.price,
+          fill.quantity,
+          BTC_SCALE.toString()
+        );
 
         // Maker = buyer
         makerBalances[quoteAsset].locked -= quoteAmount;
@@ -772,7 +841,11 @@ if (orderType === "market") {
    * Publish a BALANCE_UPDATE event for a user's current base & quote asset.
    * This ensures the DB eventually sees the updated in-memory balances.
    */
-  private publishBalanceUpdates(userId: string, baseAsset: string, quoteAsset: string) {
+  private publishBalanceUpdates(
+    userId: string,
+    baseAsset: string,
+    quoteAsset: string
+  ) {
     const userBalances = this.balance.get(userId);
     if (!userBalances) return;
 
@@ -787,7 +860,7 @@ if (orderType === "market") {
           available: userBalances[baseAsset].available.toString(),
           locked: userBalances[baseAsset].locked.toString(),
         },
-        timestamp: Date.now()
+        timestamp: Date.now(),
       };
       EventStore.publishEvent(event);
     }
@@ -802,7 +875,7 @@ if (orderType === "market") {
           available: userBalances[quoteAsset].available.toString(),
           locked: userBalances[quoteAsset].locked.toString(),
         },
-        timestamp: Date.now()
+        timestamp: Date.now(),
       };
       EventStore.publishEvent(event);
     }
@@ -827,7 +900,7 @@ if (orderType === "market") {
 
   createDbTrades(fills: Fill[], market: string, userId: string) {
     for (const fill of fills) {
-      const isBuyerMaker = (fill.makerUserId === userId);
+      const isBuyerMaker = fill.makerUserId === userId;
       const tradeEvent: Event = {
         id: fill.tradeId.toString(),
         type: "TRADE_EXECUTED",
@@ -837,7 +910,11 @@ if (orderType === "market") {
           isBuyerMaker,
           price: fill.price.toString(),
           quantity: fill.quantity.toString(),
-          quoteQuantity: mulDiv(fill.price, fill.quantity, BTC_SCALE.toString()).toString(),
+          quoteQuantity: mulDiv(
+            fill.price,
+            fill.quantity,
+            BTC_SCALE.toString()
+          ).toString(),
           timestamp: fill.timestamp,
           makerOrderId: fill.makerOrderId || null,
           takerOrderId: null,
@@ -850,7 +927,12 @@ if (orderType === "market") {
     }
   }
 
-  updateDbOrders(order: Order, executedQty: bigint, fills: Fill[], market: string) {
+  updateDbOrders(
+    order: Order,
+    executedQty: bigint,
+    fills: Fill[],
+    market: string
+  ) {
     const orderUpdateEvent: Event = {
       id: this.generateUniqueId(),
       type: "ORDER_UPDATE",
@@ -924,7 +1006,7 @@ if (orderType === "market") {
    * Snapshot the entire orderbook for a single market and publish an event for DB.
    */
   public async snapshotOrderbook(market: string) {
-    const orderbook = this.orderBooks.find(ob => ob.ticker() === market);
+    const orderbook = this.orderBooks.find((ob) => ob.ticker() === market);
     if (!orderbook) {
       console.error(`No orderbook found for market ${market} to snapshot`);
       return;
@@ -943,7 +1025,12 @@ if (orderType === "market") {
   /**
    * Send updated depth for the impacted prices after a fill.
    */
-  public publishWsDepthUpdates(fills: Fill[], price: bigint, side: "buy" | "sell", market: string) {
+  public publishWsDepthUpdates(
+    fills: Fill[],
+    price: bigint,
+    side: "buy" | "sell",
+    market: string
+  ) {
     const orderbook = this.orderBooks.find((o) => o.ticker() === market);
     if (!orderbook) return;
 
@@ -997,14 +1084,14 @@ if (orderType === "market") {
     for (const fill of fills) {
       uniquePrices.add(fill.price.toString());
     }
-  
+
     // For each unique price level affected by the market order,
     // publish the updated depth at that price level.
-    uniquePrices.forEach(price => {
+    uniquePrices.forEach((price) => {
       this.sendUpdatedDepthAt(price, market);
     });
   }
-  
+
   /**
    * Publish trades to WS and aggregator
    */
@@ -1026,7 +1113,7 @@ if (orderType === "market") {
 
       // For aggregator
       RedisManager.getInstance().publishMessage(`trade_channel`, {
-        type: 'TRADE_ADDED',
+        type: "TRADE_ADDED",
         data: {
           market,
           price: fill.price.toString(),
@@ -1042,7 +1129,10 @@ if (orderType === "market") {
    */
   public updateAndPublishTicker(fills: Fill[], market: string) {
     for (const fill of fills) {
-      tickerAggregator.updateTicker(market, { price: fill.price, quantity: fill.quantity });
+      tickerAggregator.updateTicker(market, {
+        price: fill.price,
+        quantity: fill.quantity,
+      });
       const tickerData = tickerAggregator.getTicker(market);
       if (!tickerData) continue;
       RedisManager.getInstance().publishMessage(`ticker@${market}`, {
@@ -1054,8 +1144,8 @@ if (orderType === "market") {
           v: tickerData.volume.toString(),
           s: market,
           id: tickerData.updatedAt,
-          e: "ticker"
-        }
+          e: "ticker",
+        },
       });
     }
   }
@@ -1068,10 +1158,10 @@ if (orderType === "market") {
       formatted[asset] = {
         // Convert BigInt to string
         available: (amounts as any).available.toString(),
-        locked: (amounts as any).locked.toString()
+        locked: (amounts as any).locked.toString(),
       };
     }
-    console.log(" formatBalanceForTransport ~ formatted:", formatted)
+    console.log(" formatBalanceForTransport ~ formatted:", formatted);
     return formatted;
   }
 }
