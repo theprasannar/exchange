@@ -1,6 +1,6 @@
 //@ts-nocheck
 import { Request, Response } from "express";
-import prisma from '@exchange/db/src/lib/prisma';
+import prisma from "@exchange/db/dist/lib/prisma";
 import { atomicToBtc, atomicToUsdc } from "../utils/currency";
 
 const formatTime = (isoTimestamp: string): string => {
@@ -14,7 +14,9 @@ export const getTrades = async (req: Request, res: Response): Promise<any> => {
   const limit = req.query.limit ? Number(req.query.limit) : 50; // default to 50 if not provided
 
   if (!symbol) {
-    return res.status(400).json({ error: "Symbol query parameter is required." });
+    return res
+      .status(400)
+      .json({ error: "Symbol query parameter is required." });
   }
 
   try {

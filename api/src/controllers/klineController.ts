@@ -1,18 +1,25 @@
-import { Request, Response } from 'express';
-import prisma from '@exchange/db/src/lib/prisma';
+import { Request, Response } from "express";
+import prisma from "@exchange/db/dist/lib/prisma";
 
-
-
-export const getKlineData = async (req: Request, res: Response): Promise<any> => {
+export const getKlineData = async (
+  req: Request,
+  res: Response
+): Promise<any> => {
   try {
-    const { symbol: market, interval, limit = "100" } = req.query as {
+    const {
+      symbol: market,
+      interval,
+      limit = "100",
+    } = req.query as {
       symbol: string;
       interval: string;
       limit: string;
     };
 
     if (!market || !interval) {
-      return res.status(400).json({ error: "market and interval are required" });
+      return res
+        .status(400)
+        .json({ error: "market and interval are required" });
     }
 
     // For simplicity: fetch by market + interval, order by startTime desc
@@ -46,4 +53,4 @@ export const getKlineData = async (req: Request, res: Response): Promise<any> =>
     console.error("Error fetching klines:", error);
     res.status(500).json({ error: "Failed to fetch klines" });
   }
-}
+};
