@@ -12,7 +12,7 @@
     "baseUrl": ".",
     "moduleResolution": "node",
     "paths": {
-      "db/*": ["../db/src/*"]
+      "@exchange/db/*": ["../db/src/*"]
     },
     // If you have TS6305 errors with references:
     "disableSourceOfProjectReferenceRedirect": true
