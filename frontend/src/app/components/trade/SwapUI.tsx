@@ -36,10 +36,19 @@ export function SwapUI({ market }: { market: string }) {
       toast.dismiss(loadingToast);
       toast.success("Order created successfully!");
       console.log(response);
-    } catch (error) {
-      console.log(error);
+    } catch (err) {
       toast.dismiss(loadingToast);
-      toast.error("Failed to create order. Please try again.");
+
+      const error = err as {
+        response?: { data?: { error?: string; message?: string } };
+      };
+
+      const errorMessage =
+        error.response?.data?.error ||
+        error.response?.data?.message ||
+        "Failed to create order.";
+      toast.error(errorMessage);
+      console.error("Order creation failed:", errorMessage, error);
     }
   };
 
@@ -49,7 +58,9 @@ export function SwapUI({ market }: { market: string }) {
       <div className="flex rounded-lg">
         <button
           className={`flex-1 text-center py-3 ${
-            activeTab === "buy" ? "bg-green-900/30 text-green-500 rounded-lg" : "text-gray-400"
+            activeTab === "buy"
+              ? "bg-green-900/30 text-green-500 rounded-lg"
+              : "text-gray-400"
           }`}
           onClick={() => setActiveTab("buy")}
         >
@@ -57,7 +68,9 @@ export function SwapUI({ market }: { market: string }) {
         </button>
         <button
           className={`flex-1 text-center py-3 ${
-            activeTab === "sell" ? "bg-red-900/30 text-red-500 rounded-lg" : "text-gray-400"
+            activeTab === "sell"
+              ? "bg-red-900/30 text-red-500 rounded-lg"
+              : "text-gray-400"
           }`}
           onClick={() => setActiveTab("sell")}
         >
@@ -68,13 +81,17 @@ export function SwapUI({ market }: { market: string }) {
       {/* Limit/Market Selection */}
       <div className="mt-4 flex gap-4 text-sm">
         <button
-          className={`py-1 px-2 rounded-md ${type === "limit" ? "bg-slate-800 text-white" : "text-gray-400"}`}
+          className={`py-1 px-2 rounded-md ${
+            type === "limit" ? "bg-slate-800 text-white" : "text-gray-400"
+          }`}
           onClick={() => setType("limit")}
         >
           Limit
         </button>
         <button
-          className={`py-2 px-6 rounded-md ${type === "market" ? "bg-slate-800 text-white" : "text-gray-400"}`}
+          className={`py-2 px-6 rounded-md ${
+            type === "market" ? "bg-slate-800 text-white" : "text-gray-400"
+          }`}
           onClick={() => setType("market")}
         >
           Market

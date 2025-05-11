@@ -22,9 +22,14 @@
     "redis": "^4.7.0"
   },
   "devDependencies": {
+    "@types/axios": "^0.9.36",
+    "@types/bcrypt": "^5.0.2",
     "@types/big.js": "^6.2.2",
+    "@types/cors": "^2.8.18",
+    "@types/jsonwebtoken": "^9.0.9",
     "@types/lodash": "^4.17.13",
     "@types/node": "^22.10.2",
+    "@types/pg": "^8.15.1",
     "typescript": "^5.7.2"
   }
 }
