@@ -1,34 +1,51 @@
-import { Request, Response, NextFunction, RequestHandler } from 'express';
-import prisma from '../../../db/src/lib/prisma';
-import bcrypt from 'bcrypt';
-import jwt from 'jsonwebtoken';
+import { Request, Response, NextFunction, RequestHandler } from "express";
+import prisma from "../../../db/src/lib/prisma";
+import bcrypt from "bcrypt";
+import jwt from "jsonwebtoken";
+import { RedisManager } from "../RedisManager";
+import { SYNC_USER_BALANCE } from "../types";
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your_very_secure_jwt_secret';
+const JWT_SECRET = process.env.JWT_SECRET || "your_very_secure_jwt_secret";
 
 // Explicitly define `RequestHandler` without returning `Promise<Response>`
 export const signup: RequestHandler = async (req, res, next) => {
   const { email, password } = req.body;
-  
+
   if (!email || !password) {
-    res.status(400).json({ error: 'Email and password are required.' });
+    res.status(400).json({ error: "Email and password are required." });
     return;
   }
 
   try {
     const existingUser = await prisma.user.findUnique({ where: { email } });
     if (existingUser) {
-      res.status(400).json({ error: 'User already exists.' });
+      res.status(400).json({ error: "User already exists." });
       return;
     }
-    
+
     const hashedPassword = await bcrypt.hash(password, 10);
-    
+
     const user = await prisma.user.create({
       data: { email, hashedPassword },
     });
-    
-    const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '1h' });
-    
+
+    const token = jwt.sign({ userId: user.id }, JWT_SECRET, {
+      expiresIn: "1h",
+    });
+
+    try {
+      const response = await RedisManager.getInstance().sendAndAwait(
+        {
+          type: SYNC_USER_BALANCE,
+          data: {
+            userId: user.id,
+          },
+        },
+        5000
+      );
+    } catch (err) {
+      console.error("Engine did not respond:", err);
+    }
     res.status(201).json({
       user: {
         id: user.id,
@@ -37,34 +54,36 @@ export const signup: RequestHandler = async (req, res, next) => {
       token,
     });
   } catch (error) {
-    console.error('Signup error:', error);
-    res.status(500).json({ error: 'Internal server error.' });
+    console.error("Signup error:", error);
+    res.status(500).json({ error: "Internal server error." });
   }
 };
 
 export const login: RequestHandler = async (req, res, next) => {
   const { email, password } = req.body;
-  
+
   if (!email || !password) {
-    res.status(400).json({ error: 'Email and password are required.' });
+    res.status(400).json({ error: "Email and password are required." });
     return;
   }
 
   try {
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user) {
-      res.status(400).json({ error: 'Invalid credentials.' });
+      res.status(400).json({ error: "Invalid credentials." });
       return;
     }
-    
+
     const isPasswordValid = await bcrypt.compare(password, user.hashedPassword);
     if (!isPasswordValid) {
-      res.status(400).json({ error: 'Invalid credentials.' });
+      res.status(400).json({ error: "Invalid credentials." });
       return;
     }
-    
-    const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '1h' });
-    
+
+    const token = jwt.sign({ userId: user.id }, JWT_SECRET, {
+      expiresIn: "1h",
+    });
+
     res.status(200).json({
       user: {
         id: user.id,
@@ -73,7 +92,7 @@ export const login: RequestHandler = async (req, res, next) => {
       token,
     });
   } catch (error) {
-    console.error('Login error:', error);
-    res.status(500).json({ error: 'Internal server error.' });
+    console.error("Login error:", error);
+    res.status(500).json({ error: "Internal server error." });
   }
 };

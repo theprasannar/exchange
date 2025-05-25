@@ -27,11 +27,11 @@ export const fetchDepthData = createAsyncThunk(
       return {
         bids: depth.bids.map(([p, q]: [string, string]): [string, string] => [
           atomicToUsdc(BigInt(p)), // Convert atomic USDC to display USDC
-          atomicToBtc(BigInt(q))     // Convert atomic BTC to display BTC
+          atomicToBtc(BigInt(q)), // Convert atomic BTC to display BTC
         ]),
         asks: depth.asks.map(([p, q]: [string, string]): [string, string] => [
           atomicToUsdc(BigInt(p)),
-          atomicToBtc(BigInt(q))
+          atomicToBtc(BigInt(q)),
         ]),
         price: depth.price ? atomicToUsdc(BigInt(depth.price)) : null,
       };
@@ -47,7 +47,11 @@ const depthSlice = createSlice({
   reducers: {
     updateDepth: (
       state,
-      action: PayloadAction<{ bids: [string, string][]; asks: [string, string][]; price: string | null }>
+      action: PayloadAction<{
+        bids: [string, string][];
+        asks: [string, string][];
+        price: string | null;
+      }>
     ) => {
       const { bids, asks, price } = action.payload;
 
@@ -86,7 +90,6 @@ const depthSlice = createSlice({
   extraReducers: (builder) => {
     builder
       .addCase(fetchDepthData.fulfilled, (state, action) => {
-        console.log("action.payload", action.payload);
         state.bids = action.payload.bids;
         state.asks = action.payload.asks;
         state.price = action.payload.price;
@@ -106,26 +109,34 @@ export const subscribeDepth = (market: string) => (dispatch: any) => {
   const manager = SignalingManager.getInstance();
   const callbackId = `Depth_${market}`;
 
-  manager.registerCallback("depth", (msg) => {
-    console.log("Received depth update:", msg);
-    const data = msg.data ?? msg.payload;
-    // Convert incoming data if it is still in atomic form:
-    const bids = (data.b || []).map(([p, q]: [string, string]): [string, string] => [
-      atomicToUsdc(BigInt(p)),
-      atomicToBtc(BigInt(q))
-    ]);
-    const asks = (data.a || []).map(([p, q]: [string, string]): [string, string] => [
-      atomicToUsdc(BigInt(p)),
-      atomicToBtc(BigInt(q))
-    ]);
-    dispatch(
-      updateDepth({
-        bids,
-        asks,
-        price: data.c ? atomicToUsdc(BigInt(data.c)) : null,
-      })
-    );
-  }, callbackId);
+  manager.registerCallback(
+    "depth",
+    (msg) => {
+      console.log("Received depth update:", msg);
+      const data = msg.data ?? msg.payload;
+      // Convert incoming data if it is still in atomic form:
+      const bids = (data.b || []).map(
+        ([p, q]: [string, string]): [string, string] => [
+          atomicToUsdc(BigInt(p)),
+          atomicToBtc(BigInt(q)),
+        ]
+      );
+      const asks = (data.a || []).map(
+        ([p, q]: [string, string]): [string, string] => [
+          atomicToUsdc(BigInt(p)),
+          atomicToBtc(BigInt(q)),
+        ]
+      );
+      dispatch(
+        updateDepth({
+          bids,
+          asks,
+          price: data.c ? atomicToUsdc(BigInt(data.c)) : null,
+        })
+      );
+    },
+    callbackId
+  );
 
   manager.sendMessage({ method: "SUBSCRIBE", params: [`depth@${market}`] });
 

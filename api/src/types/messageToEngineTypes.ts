@@ -1,6 +1,13 @@
-import { CREATE_ORDER, CANCEL_ORDER, ON_RAMP, GET_DEPTH, GET_OPEN_ORDERS, GET_TICKER_DETAILS } from './index';
-
-export const GET_USER_BALANCE = 'GET_USER_BALANCE';
+import {
+  CREATE_ORDER,
+  CANCEL_ORDER,
+  ON_RAMP,
+  GET_DEPTH,
+  GET_OPEN_ORDERS,
+  GET_TICKER_DETAILS,
+  SYNC_USER_BALANCE,
+} from "./index";
+export const GET_USER_BALANCE = "GET_USER_BALANCE";
 
 export type MessageToEngine =
   | {
@@ -11,7 +18,7 @@ export type MessageToEngine =
         quantity: string;
         side: "buy" | "sell";
         userId: string;
-        orderType?: "limit" | "market"; 
+        orderType?: "limit" | "market";
       };
     }
   | {
@@ -43,14 +50,20 @@ export type MessageToEngine =
       };
     }
   | {
-    type: typeof GET_TICKER_DETAILS;
-    data: {
-      market: string;
-    };
-  }
+      type: typeof GET_TICKER_DETAILS;
+      data: {
+        market: string;
+      };
+    }
   | {
-    type: typeof GET_USER_BALANCE;
-    data: {
-      userId: string;
+      type: typeof GET_USER_BALANCE;
+      data: {
+        userId: string;
+      };
+    }
+  | {
+      type: typeof SYNC_USER_BALANCE;
+      data: {
+        userId: string;
+      };
     };
-  }

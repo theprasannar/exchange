@@ -10,6 +10,7 @@ import {
   MessageFromAPI,
   ON_RAMP,
   GET_USER_BALANCE,
+  SYNC_USER_BALANCE,
 } from "../types/MessageFromAPI";
 import { BTC_SCALE, mulDiv } from "../utils/currency";
 import { tickerAggregator } from "./tickerAggregator";
@@ -112,7 +113,7 @@ export class Engine {
     this.loadAllBalancesFromDB();
 
     // 2) Recover state from the last snapshot + replay events
-    await this.recoverState();
+    // await this.recoverState();
 
     // 3) Start real-time Kline aggregator (if used)
     initRealTimeKlineAggregator();
@@ -127,6 +128,22 @@ export class Engine {
       });
     }
     console.log("Engine: Loaded user balances into memory");
+  }
+
+  async loadBalanceForUser(userId: string) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      console.log(`No user with ${userId} found in database to add balance`);
+      return;
+    }
+    this.balance.set(userId, {
+      USDC: { available: BigInt(user.usdcBalance), locked: 0n },
+      BTC: { available: BigInt(user.btcBalance), locked: 0n },
+    });
+    console.log(`Engine: Loaded balance for user ${userId}`);
   }
 
   async recoverState() {
@@ -164,7 +181,7 @@ export class Engine {
 
         // Replay events from Redis that happened after the snapshot timestamp
         const snapshotTimestamp = snapshotRecord.updatedAt.getTime();
-        // await this.loadEventsFromRedis(snapshotTimestamp);
+        await this.loadEventsFromRedis(snapshotTimestamp);
       } catch (error) {
         console.error(
           `Engine: Error loading snapshot for market ${market}:`,
@@ -467,6 +484,20 @@ export class Engine {
         }
         break;
 
+      case SYNC_USER_BALANCE:
+        try {
+          const { userId } = message.data;
+          await this.loadBalanceForUser(userId);
+          RedisManager.getInstance().sendToApi(clientId, {
+            type: "SYNC_USER_BALANCE",
+            payload: {
+              message: "User balance synced",
+            },
+          });
+        } catch (error) {
+          console.error("Error syncing user balance:", error);
+        }
+        break;
       case GET_TICKER_DETAILS:
         try {
           const { market } = message.data;
@@ -658,7 +689,6 @@ export class Engine {
       // For market orders, update depth for all affected price levels
       this.publishWsMarketDepthUpdate(fills, market);
     } else {
-      console.log("Here");
       this.publishWsDepthUpdates(fills, price, side, market);
     }
     this.publishWsTrades(fills, market, userId);
@@ -1050,10 +1080,6 @@ export class Engine {
       const updatedAsks = depth.asks.filter((x) => affectedPrices.has(x[0]));
 
       const updatedBid = depth.bids.find((x) => x[0] === priceStr);
-
-      console.log("🟡 affectedPrices:", affectedPrices);
-      console.log("🟡 depth.asks:", depth.asks);
-      console.log("🟡 updatedAsks after filter:", updatedAsks);
 
       for (const price of affectedPrices) {
         const askStillExists = depth.asks.some(([p]) => p === price);

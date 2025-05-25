@@ -5,7 +5,7 @@ import { atomicToBtc, atomicToUsdc } from "../utils/currency";
 
 // Define the shape of our ticker state.
 export interface TickerState {
-  lastPrice: string;  // e.g. display USDC price
+  lastPrice: string; // e.g. display USDC price
   high: string;
   low: string;
   volume: string;
@@ -28,14 +28,14 @@ export const fetchTickerData = createAsyncThunk(
   async (market: string, { rejectWithValue }) => {
     try {
       const data = await getTicker(market);
-      console.log(" data:", data) 
+      console.log(" data:", data);
       // Assume data has properties c, h, l, v, s, id (all as strings/numbers) in atomic format
       return {
         lastPrice: atomicToUsdc(BigInt(data.currentPrice)),
         high: atomicToUsdc(BigInt(data.high)),
         low: atomicToUsdc(BigInt(data.low)),
         volume: atomicToBtc(BigInt(data.volume)), // volume can remain as is or be converted if needed
-        symbol: data.symbol
+        symbol: data.symbol,
       };
     } catch (error) {
       return rejectWithValue(error);
@@ -76,30 +76,34 @@ const tickerSlice = createSlice({
 export const subscribeTicker = (market: string) => (dispatch: any) => {
   const manager = SignalingManager.getInstance();
   const callbackId = `Ticker_${market}`;
-  
-  manager.registerCallback("ticker", (msg) => {
-    const data = msg.data;
-    console.log(" manager.registerCallback ~ data:", data)
-    dispatch(
-      tickerSlice.actions.updateTicker({
-        lastPrice: data.c ? atomicToUsdc(BigInt(data.c)) : "0",
-        high: data.h ? atomicToUsdc(BigInt(data.h)) : "0",
-        low: data.l ? atomicToUsdc(BigInt(data.l)) : "0",
-        volume: atomicToBtc(BigInt(data.v)) || "0",
-        symbol: data.s || market,
-        updatedAt: data.id,
-      })
-    );
-  }, callbackId);
 
-  console.log('before sub')
+  manager.registerCallback(
+    "ticker",
+    (msg) => {
+      const data = msg.data;
+      console.log(" manager.registerCallback ~ data:", data);
+      dispatch(
+        tickerSlice.actions.updateTicker({
+          lastPrice: data.c ? atomicToUsdc(BigInt(data.c)) : "0",
+          high: data.h ? atomicToUsdc(BigInt(data.h)) : "0",
+          low: data.l ? atomicToUsdc(BigInt(data.l)) : "0",
+          volume: atomicToBtc(BigInt(data.v)) || "0",
+          symbol: data.s || market,
+          updatedAt: data.id,
+        })
+      );
+    },
+    callbackId
+  );
+
   manager.sendMessage({ method: "SUBSCRIBE", params: [`ticker@${market}`] });
-  console.log('after sub')
-
 
   return () => {
     manager.deRegisterCallback("ticker", callbackId);
-    manager.sendMessage({ method: "UNSUBSCRIBE", params: [`ticker@${market}`] });
+    manager.sendMessage({
+      method: "UNSUBSCRIBE",
+      params: [`ticker@${market}`],
+    });
   };
 };
 
