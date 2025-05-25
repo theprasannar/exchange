@@ -1,96 +1,101 @@
 "use client";
+
 import { useState } from "react";
 import { createOrder } from "../../lib/api";
 import toast from "react-hot-toast";
 import { useAuth } from "../../../context/AuthContext";
 
 export function SwapUI({ market }: { market: string }) {
+  const { userId } = useAuth();
   const [activeTab, setActiveTab] = useState<"buy" | "sell">("buy");
   const [type, setType] = useState<"limit" | "market">("limit");
-  const [price, setPrice] = useState<string>("");
-  const [quantity, setQuantity] = useState<string>("");
-  const { userId } = useAuth();
+  const [price, setPrice] = useState("");
+  const [quantity, setQuantity] = useState("");
+  const [slider, setSlider] = useState(0);
+
+  const [baseAsset, quoteAsset] = market.split("_");
+
+  const calculateTotal = () => {
+    if (!price || !quantity) return "0.00";
+    return (parseFloat(price) * parseFloat(quantity)).toFixed(2);
+  };
 
   const handleCreateOrder = async () => {
-    if (!userId) {
-      toast.error("Please login first");
-      return;
-    }
+    if (!userId) return toast.error("Please login first");
     if (!quantity || (type === "limit" && !price)) {
-      toast.error("Please enter required fields.");
-      return;
+      return toast.error("Please enter required fields");
     }
 
     const loadingToast = toast.loading("Creating order...");
     try {
       const order = {
         market,
-        price: type === "market" ? undefined : price, // Remove price for market orders
+        price: type === "market" ? undefined : price,
         quantity,
         side: activeTab,
-        userId: userId,
-        orderType: type, // Explicitly add the order type
+        userId,
+        orderType: type,
       };
-
-      const response = await createOrder(order);
+      await createOrder(order);
       toast.dismiss(loadingToast);
-      toast.success("Order created successfully!");
-      console.log(response);
-    } catch (err) {
+      toast.success("Order placed!");
+      setQuantity("");
+      if (type === "limit") setPrice("");
+      setSlider(0);
+    } catch (err: any) {
       toast.dismiss(loadingToast);
-
-      const error = err as {
-        response?: { data?: { error?: string; message?: string } };
-      };
-
-      const errorMessage =
-        error.response?.data?.error ||
-        error.response?.data?.message ||
-        "Failed to create order.";
-      toast.error(errorMessage);
-      console.error("Order creation failed:", errorMessage, error);
+      const errorMsg =
+        err?.response?.data?.error ||
+        err?.response?.data?.message ||
+        "Failed to create order";
+      toast.error(errorMsg);
+      console.error("Order failed:", err);
     }
   };
 
   return (
-    <div className="p-4 rounded-lg">
+    <div className="p-4">
       {/* Buy/Sell Tabs */}
-      <div className="flex rounded-lg">
+      <div className="flex rounded-lg bg-zinc-900/50 p-1 mb-4">
         <button
-          className={`flex-1 text-center py-3 ${
+          className={`flex-1 py-2 rounded-md text-sm font-medium transition ${
             activeTab === "buy"
-              ? "bg-green-900/30 text-green-500 rounded-lg"
-              : "text-gray-400"
+              ? "bg-green-500/20 text-green-400"
+              : "text-zinc-400 hover:text-zinc-200"
           }`}
           onClick={() => setActiveTab("buy")}
         >
-          Buy
+          Buy {baseAsset}
         </button>
         <button
-          className={`flex-1 text-center py-3 ${
+          className={`flex-1 py-2 rounded-md text-sm font-medium transition ${
             activeTab === "sell"
-              ? "bg-red-900/30 text-red-500 rounded-lg"
-              : "text-gray-400"
+              ? "bg-red-500/20 text-red-400"
+              : "text-zinc-400 hover:text-zinc-200"
           }`}
           onClick={() => setActiveTab("sell")}
         >
-          Sell
+          Sell {baseAsset}
         </button>
       </div>
 
-      {/* Limit/Market Selection */}
-      <div className="mt-4 flex gap-4 text-sm">
+      {/* Order Type Tabs */}
+      <div className="flex rounded-lg bg-zinc-900/50 p-1 mb-4">
         <button
-          className={`py-1 px-2 rounded-md ${
-            type === "limit" ? "bg-slate-800 text-white" : "text-gray-400"
+          className={`flex-1 py-1.5 rounded-md text-xs font-medium transition ${
+            type === "limit"
+              ? "bg-zinc-800 text-white"
+              : "text-zinc-400 hover:text-zinc-200"
           }`}
           onClick={() => setType("limit")}
         >
           Limit
         </button>
         <button
-          className={`py-2 px-6 rounded-md ${
-            type === "market" ? "bg-slate-800 text-white" : "text-gray-400"
+          className={`flex-1 py-1.5 rounded-md text-xs font-medium transition ${
+            type === "market"
+              ? "bg-zinc-800 text-white"
+              : "text-zinc-400 hover:text-zinc-200"
           }`}
           onClick={() => setType("market")}
         >
@@ -98,51 +103,90 @@ export function SwapUI({ market }: { market: string }) {
         </button>
       </div>
 
-      {/* Price Input (Hidden in Market Order) */}
+      {/* Price Input (only for Limit) */}
       {type === "limit" && (
-        <div className="mt-4">
-          <label className="text-gray-400 text-sm">Price</label>
+        <div className="mb-4">
+          <label className="block text-xs text-zinc-400 mb-1">Price</label>
           <div className="relative">
             <input
               type="text"
-              className="w-full h-12 bg-[#202127] bg-opacity-75 border border-gray-700 rounded-lg text-right pr-12 text-xl text-white"
               value={price}
               onChange={(e) => setPrice(e.target.value)}
+              className="w-full bg-zinc-900/50 border border-zinc-700 rounded-lg py-2 px-3 text-right pr-16 text-white focus:ring-1 focus:ring-blue-500 focus:outline-none"
+              placeholder="0.00"
             />
-            <div className="absolute right-3 top-3">
-              <img src="/images/usdc.webp" className="w-6 h-6" />
+            <div className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 text-sm">
+              {quoteAsset}
             </div>
           </div>
         </div>
       )}
 
       {/* Quantity Input */}
-      <div className="mt-4">
-        <label className="text-gray-400 text-sm">Quantity</label>
+      <div className="mb-4">
+        <label className="block text-xs text-zinc-400 mb-1">Amount</label>
         <div className="relative">
           <input
             type="text"
-            className="w-full h-12 bg-[#202127] bg-opacity-75 border border-gray-700 rounded-lg text-right pr-12 text-xl text-white"
             value={quantity}
             onChange={(e) => setQuantity(e.target.value)}
+            className="w-full bg-zinc-900/50 border border-zinc-700 rounded-lg py-2 px-3 text-right pr-16 text-white focus:ring-1 focus:ring-blue-500 focus:outline-none"
+            placeholder="0.00"
           />
-          <div className="absolute right-3 top-3">
-            <img src="/images/btc.webp" className="w-6 h-6" />
+          <div className="absolute right-3 top-1/2 -translate-y-1/2 text-zinc-400 text-sm">
+            {baseAsset}
           </div>
         </div>
       </div>
 
-      {/* Buy/Sell Button */}
-      <div className="mt-6">
-        <button
-          className={`w-full py-3 rounded-lg text-white font-bold ${
-            activeTab === "buy" ? "bg-green-600/70" : "bg-red-600/70"
-          }`}
-          onClick={handleCreateOrder}
-        >
-          {activeTab === "buy" ? "Buy" : "Sell"}
-        </button>
+      {/* Percentage Slider */}
+      <div className="mb-4">
+        <input
+          type="range"
+          min="0"
+          max="100"
+          value={slider}
+          onChange={(e) => setSlider(parseInt(e.target.value))}
+          className="w-full h-2 bg-zinc-700 rounded-lg appearance-none cursor-pointer"
+        />
+        <div className="flex justify-between mt-2">
+          {[25, 50, 75, 100].map((pct) => (
+            <button
+              key={pct}
+              onClick={() => setSlider(pct)}
+              className={`text-xs py-1 px-2 rounded ${
+                slider === pct
+                  ? "bg-blue-500/20 text-blue-400"
+                  : "bg-zinc-800 text-zinc-400 hover:bg-zinc-700"
+              }`}
+            >
+              {pct}%
+            </button>
+          ))}
+        </div>
       </div>
+
+      {/* Total Row */}
+      <div className="mb-6">
+        <div className="flex justify-between text-xs mb-1">
+          <span className="text-zinc-400">Total:</span>
+          <span className="text-white">
+            {calculateTotal()} {quoteAsset}
+          </span>
+        </div>
+      </div>
+
+      {/* Submit Button */}
+      <button
+        onClick={handleCreateOrder}
+        className={`w-full py-3 rounded-lg font-medium transition ${
+          activeTab === "buy"
+            ? "bg-green-600 hover:bg-green-500"
+            : "bg-red-600 hover:bg-red-500"
+        } text-white`}
+      >
+        {activeTab === "buy" ? `Buy ${baseAsset}` : `Sell ${baseAsset}`}
+      </button>
     </div>
   );
 }

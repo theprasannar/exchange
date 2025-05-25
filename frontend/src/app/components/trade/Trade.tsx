@@ -47,13 +47,19 @@ export function Trades({ market }: { market: string }) {
 function TradeRow({ trade }: { trade: Trade }) {
   // Convert timestamp if needed
 
-  const tradeColor = trade.isBuyerMaker ? 'text-red-500' : 'text-green-500';
+  const tradeColor = trade.isBuyerMaker ? "text-red-500" : "text-green-500";
   return (
-    <div className={`flex justify-between text-xs py-1 border-b border-gray-800`}>
-      <span className={tradeColor} >{parseFloat(trade.price).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+    <div
+      className={`flex justify-between text-xs py-1 border-b border-gray-800`}
+    >
+      <span className={tradeColor}>
+        {parseFloat(trade.price).toLocaleString(undefined, {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        })}
+      </span>
       <span className="text-white">{trade.quantity}</span>
       <span className="text-gray-400">{trade.timestamp}</span>
     </div>
   );
 }
-
