@@ -4,6 +4,7 @@ import depthReducer from "./depthSlice";
 import tickerReducer from "./tickerSlice";
 import tradeReducer from "./tradeSlice";
 import klineReducer from "./klineSlice";
+import openOrderReducer from "./openOrderSlice";
 
 const store = configureStore({
   reducer: {
@@ -11,6 +12,7 @@ const store = configureStore({
     ticker: tickerReducer,
     trade: tradeReducer,
     kline: klineReducer,
+    openOrder: openOrderReducer,
   },
 });
 

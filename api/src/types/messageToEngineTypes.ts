@@ -19,6 +19,8 @@ export type MessageToEngine =
         side: "buy" | "sell";
         userId: string;
         orderType?: "limit" | "market";
+        ioc?: boolean;
+        postOnly?: boolean;
       };
     }
   | {
@@ -26,6 +28,7 @@ export type MessageToEngine =
       data: {
         orderId: string;
         market: string;
+        userId: string;
       };
     }
   | {

@@ -50,14 +50,14 @@ export const Appbar = () => {
               <span>Trade</span>
             </a>
             <a
-              href="#"
+              onClick={() => router.push("/home")}
               className="text-zinc-400 hover:text-white flex items-center gap-1.5 px-2 py-1 rounded-lg hover:bg-zinc-800/50 transition-all duration-200"
             >
               <LandmarkIcon size={16} />
               <span>Markets</span>
             </a>
             <a
-              href="#"
+              onClick={() => router.push("/me")}
               className="text-zinc-400 hover:text-white flex items-center gap-1.5 px-2 py-1 rounded-lg hover:bg-zinc-800/50 transition-all duration-200"
             >
               <ShieldIcon size={16} />
@@ -83,12 +83,6 @@ export const Appbar = () => {
                 {userMenuOpen && (
                   <div className="absolute right-0 mt-2 w-48 bg-zinc-800 rounded-lg shadow-lg shadow-black/30 border border-zinc-700/50 overflow-hidden z-50">
                     <div className="py-2">
-                      <a
-                        onClick={() => router.push("/me")}
-                        className="block px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-700 hover:text-white cursor-pointer"
-                      >
-                        Profile
-                      </a>
                       <button
                         onClick={logout}
                         className="w-full text-left block px-4 py-2 text-sm text-red-400 hover:bg-red-500/10 hover:text-red-300"

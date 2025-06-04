@@ -3,13 +3,17 @@
 import React, { useEffect } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import {useAuth} from "../../context/AuthContext"
 import { useRouter } from "next/navigation";
-
-
-// If you're using Redux for ticker data:
-import { fetchTickerData } from "../store/tickerSlice";
+import { useAuth } from "../../context/AuthContext";
 import { useAppDispatch, useAppSelector } from "../hooks/hooks";
+import { fetchTickerData } from "../store/tickerSlice";
+import {
+  ArrowUpRight,
+  Bitcoin,
+  DollarSign,
+  LineChart,
+  TrendingUp,
+} from "lucide-react";
 
 export default function Home() {
   const dispatch = useAppDispatch();
@@ -17,105 +21,118 @@ export default function Home() {
   const { token, isLoading } = useAuth();
   const ticker = useAppSelector((state) => state.ticker);
 
-  // Always call the hook for auth redirection
   useEffect(() => {
     if (!isLoading && !token) {
       router.push("/auth/signin");
     }
   }, [token, isLoading, router]);
 
-  // Always call this effect, but conditionally dispatch
   useEffect(() => {
     if (!isLoading) {
       dispatch(fetchTickerData("BTC_USDC"));
     }
   }, [dispatch, isLoading]);
 
-  // Conditionally render your UI based on isLoading
-  if (isLoading) {
-    return <div>Loading...</div>;
-  }
+  if (isLoading) return <div>Loading...</div>;
 
   return (
-    <div className="bg-[#0e0f14] min-h-screen text-white">
-      {/* ====== Banner Section ====== */}
-      {/* ====== Banner Section ====== */}
-      <section className="relative w-full p-8 flex justify-center">
-        <div className="relative max-w-[1200px] w-full bg-[#121418] rounded-lg overflow-hidden">
-          {/* Background Image */}
-          <Image
-            src="/images/banner.webp" // Replace with your actual image path
-            alt="Trading Banner"
-            layout="fill"
-            objectFit="cover"
-            className="opacity-40"
-          />
+    <div className="min-h-screen bg-gradient-to-br from-zinc-900 via-zinc-800 to-zinc-900 text-white relative">
+      {/* Ambient background elements */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <div className="absolute -top-40 -left-40 w-80 h-80 bg-blue-500/10 rounded-full blur-3xl" />
+        <div className="absolute top-1/3 -right-20 w-60 h-60 bg-indigo-500/10 rounded-full blur-3xl" />
+        <div className="absolute -bottom-40 left-1/3 w-80 h-80 bg-sky-500/10 rounded-full blur-3xl" />
+      </div>
 
-          {/* Text Content */}
-          <div className="relative p-8 z-10 text-left">
-            <h1 className="text-4xl font-bold mb-4 text-white">
-              Start Trading
-            </h1>
-            <p className="text-gray-300 mb-6 text-lg">
-              Trade Bitcoin, Ethereum, and your favorite assets instantly.
-            </p>
-            <button className="bg-green-500 text-[#121418] px-6 py-3 cursor-none rounded-md text-lg font-semibold transition-colors">
-              Trade Now
-            </button>
+      <div className="relative max-w-7xl mx-auto px-4 py-12 sm:px-6 lg:px-8">
+        {/* Hero Section */}
+        <section className="relative mb-16">
+          <div className="backdrop-blur-xl bg-zinc-800/40 border border-zinc-700/50 rounded-2xl p-8 md:p-12">
+            <div className="max-w-3xl">
+              <h1 className="text-4xl md:text-5xl font-bold text-white mb-6 leading-tight">
+                Trade with Confidence on Our{" "}
+                <span className="bg-gradient-to-r from-sky-500 to-indigo-600 bg-clip-text text-transparent">
+                  Advanced Platform
+                </span>
+              </h1>
+              <p className="text-zinc-400 text-lg mb-8">
+                Experience seamless trading with real-time data, advanced
+                charts, and institutional-grade security.
+              </p>
+              <Link href="/trade/BTC_USDC">
+                <button className="bg-gradient-to-r from-sky-500 to-indigo-600 text-white px-8 py-4 rounded-xl font-medium transition-all duration-300 hover:shadow-lg hover:shadow-sky-500/10 transform hover:-translate-y-0.5 flex items-center gap-2">
+                  Start Trading Now
+                  <ArrowUpRight className="w-5 h-5" />
+                </button>
+              </Link>
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
 
-      {/* ====== Single BTC Market Section ====== */}
-      <section className="w-full p-8 flex flex-col items-center">
-        <div className="max-w-[1200px] w-full bg-[#121418] rounded-lg p-8">
-          <h2 className="text-xl font-semibold mb-4">Spot Markets</h2>
+        {/* Market Overview */}
+        <section className="mb-16">
+          <div className="backdrop-blur-xl bg-zinc-800/40 border border-zinc-700/50 rounded-2xl p-8">
+            <div className="flex items-center justify-between mb-8">
+              <h2 className="text-2xl font-bold text-white">Market Overview</h2>
+              <Link href="/markets">
+                <span className="text-sky-500 hover:text-sky-400 transition-colors flex items-center gap-2 cursor-pointer">
+                  View All Markets
+                  <ArrowUpRight className="w-4 h-4" />
+                </span>
+              </Link>
+            </div>
 
-          <div className="overflow-x-auto">
-            <table className="w-full text-left">
-              <thead>
-                <tr className="border-b border-gray-700 text-sm">
-                  <th className="py-2">Market</th>
-                  <th className="py-2">Last Price</th>
-                  <th className="py-2">24h Change</th>
-                  <th className="py-2">24h Volume</th>
-                </tr>
-              </thead>
-              <tbody>
-                {/* Single BTC/USDC row */}
-                <tr className="border-b border-gray-700 hover:bg-gray-800/30 transition-colors text-sm">
-                  <td className="py-2 flex items-center space-x-2">
-                    {/* Coin Icons */}
-                    <Image
-                      src="/images/btc.webp"
-                      alt="BTC"
-                      width={20}
-                      height={20}
-                      className="rounded-full"
-                    />
-                    <Link
-                      href="/trade/BTC_USDC"
-                      className="hover:underline underline-offset-2"
-                    >
-                      BTC / USDC
-                    </Link>
-                  </td>
-                  <td className="py-2">
-                    {ticker.lastPrice ? `$${ticker.lastPrice}` : "--"}
-                  </td>
-                  <td className="py-2">
-                    {/* If you track price change in ticker, you can display it. Otherwise static */}
-                    +2.4%
-                  </td>
-                  <td className="py-2">
-                    {ticker.volume ? ticker.volume : "--"}
-                  </td>
-                </tr>
-              </tbody>
-            </table>
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="text-zinc-400 border-b border-zinc-700/50 text-sm">
+                    <th className="pb-4 text-left">Asset</th>
+                    <th className="pb-4 text-right">Last Price</th>
+                    <th className="pb-4 text-right">24h Change</th>
+                    <th className="pb-4 text-right">24h Volume</th>
+                    <th className="pb-4 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="border-b border-zinc-700/50 hover:bg-zinc-700/20 transition-colors">
+                    <td className="py-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-gradient-to-br from-orange-500 to-orange-600 rounded-full flex items-center justify-center">
+                          <Bitcoin className="w-5 h-5 text-white" />
+                        </div>
+                        <div>
+                          <p className="text-white font-medium">Bitcoin</p>
+                          <p className="text-zinc-400 text-sm">BTC / USDC</p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="py-4 text-right">
+                      <p className="text-white font-medium">
+                        {ticker.lastPrice ? `$${ticker.lastPrice}` : "--"}
+                      </p>
+                    </td>
+                    <td className="py-4 text-right">
+                      <span className="text-emerald-500">+2.4%</span>
+                    </td>
+                    <td className="py-4 text-right">
+                      <p className="text-white">
+                        {ticker.volume ? `$${ticker.volume}` : "--"}
+                      </p>
+                    </td>
+                    <td className="py-4 text-right">
+                      <Link href="/trade/BTC_USDC">
+                        <button className="bg-sky-500/10 text-sky-500 px-4 py-2 rounded-lg hover:bg-sky-500/20 transition-colors">
+                          Trade
+                        </button>
+                      </Link>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
+      </div>
     </div>
   );
 }

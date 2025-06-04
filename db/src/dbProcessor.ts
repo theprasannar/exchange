@@ -2,10 +2,9 @@ import prisma from "./lib/prisma";
 import { createClient } from "redis";
 import { sleep } from "./utils";
 
-
 export interface Event {
   id: string;
-  type: string;   // Event type (e.g., "ORDER_CREATE", "BALANCE_UPDATE", etc.)
+  type: string; // Event type (e.g., "ORDER_CREATE", "BALANCE_UPDATE", etc.)
   data: any;
   timestamp: number;
   retryCount?: number;
@@ -52,14 +51,16 @@ async function processOrderCreate(data: any): Promise<void> {
     });
     console.log(`DB Processor: Order created ${data.orderId}`);
   } catch (error) {
-    throw new Error(`DB Processor: Failed to create order ${data.orderId}: ${error}`);
+    throw new Error(
+      `DB Processor: Failed to create order ${data.orderId}: ${error}`
+    );
   }
 }
 
 // dbProcessor.ts (or wherever you have your DB processing logic)
 
 async function processBalanceUpdate(data: any): Promise<void> {
-  console.log('Process')
+  console.log("Process");
   try {
     // data has { userId, asset, available, locked? }
     // For demonstration, let's handle USDC and BTC.
@@ -91,7 +92,6 @@ async function processBalanceUpdate(data: any): Promise<void> {
   }
 }
 
-
 async function processTradeExecuted(data: any): Promise<void> {
   try {
     await prisma.trade.create({
@@ -111,7 +111,9 @@ async function processTradeExecuted(data: any): Promise<void> {
     });
     console.log(`DB Processor: Trade recorded ${data.id}`);
   } catch (error) {
-    throw new Error(`DB Processor: Failed to record trade ${data.id}: ${error}`);
+    throw new Error(
+      `DB Processor: Failed to record trade ${data.id}: ${error}`
+    );
   }
 }
 
@@ -130,31 +132,48 @@ export async function processOrderbookSnapshot(data: any): Promise<void> {
         snapshot: data.snapshot,
       },
     });
-    
-    console.log(`DB Processor: Orderbook snapshot persisted for market ${data.market}`);
+
+    console.log(
+      `DB Processor: Orderbook snapshot persisted for market ${data.market}`
+    );
   } catch (error) {
-    throw new Error(`DB Processor: Failed to process orderbook snapshot for market ${data.market}: ${error}`);
+    throw new Error(
+      `DB Processor: Failed to process orderbook snapshot for market ${data.market}: ${error}`
+    );
   }
 }
 
-
 async function processOrderUpdate(data: any): Promise<void> {
-  try {
-    // Fetch the existing order
-    const existingOrder = await prisma.order.findUnique({ where: { id: data.orderId } });
-    if (!existingOrder) {
-      console.warn(`DB Processor: Order ${data.orderId} not found`);
-      return;
-    }
-    // Update order details (for simplicity, assume data.executedQty represents the new filled amount)
-    await prisma.order.update({
-      where: { id: data.orderId },
-      data: { filled: BigInt(data.executedQty) },
-    });
-    console.log(`DB Processor: Order updated ${data.orderId}`);
-  } catch (error) {
-    throw new Error(`DB Processor: Failed to update order ${data.orderId}: ${error}`);
+  const existingOrder = await prisma.order.findUnique({
+    where: { id: data.orderId },
+  });
+  if (!existingOrder) {
+    console.warn(`DB Processor: Order ${data.orderId} not found`);
+    return;
   }
+
+  // Normalise types
+  const executed = BigInt(data.executedQty); // ← bigint
+  const quantity = data.quantity
+    ? BigInt(data.quantity) // present for the taker update
+    : existingOrder.quantity; // fall back for maker-side Δ updates
+
+  // Decide the new status
+  const status =
+    executed === 0n
+      ? "PENDING"
+      : executed === quantity
+      ? "FILLED"
+      : "PARTIALLY_FILLED";
+
+  await prisma.order.update({
+    where: { id: data.orderId },
+    data: {
+      filled: executed, // write the bigint
+      status,
+    },
+  });
+  console.log(`DB Processor: Order updated ${data.orderId}`);
 }
 
 /**
@@ -181,7 +200,7 @@ async function consumeEvents() {
     try {
       // Blocking pop from the "event_store" list
       const result = await redisClient.brPop("event_store", 0);
-      console.log(" consumeEvents ~ result:", result)
+      console.log(" consumeEvents ~ result:", result);
       if (result) {
         const message = result.element;
         const event: Event = JSON.parse(message);
@@ -194,7 +213,10 @@ async function consumeEvents() {
             processed = true;
           } catch (error) {
             retryCount++;
-            console.error(`DB Processor: Error processing event ${event.id} (attempt ${retryCount}):`, error);
+            console.error(
+              `DB Processor: Error processing event ${event.id} (attempt ${retryCount}):`,
+              error
+            );
             event.retryCount = retryCount;
             await sleep(1000 * retryCount); // exponential backoff
           }

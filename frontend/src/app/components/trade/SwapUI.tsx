@@ -12,6 +12,8 @@ export function SwapUI({ market }: { market: string }) {
   const [price, setPrice] = useState("");
   const [quantity, setQuantity] = useState("");
   const [slider, setSlider] = useState(0);
+  const [ioc, setIoc] = useState(false);
+  const [postOnly, setPostOnly] = useState(false);
 
   const [baseAsset, quoteAsset] = market.split("_");
 
@@ -35,6 +37,8 @@ export function SwapUI({ market }: { market: string }) {
         side: activeTab,
         userId,
         orderType: type,
+        ioc,
+        postOnly,
       };
       await createOrder(order);
       toast.dismiss(loadingToast);
@@ -50,6 +54,20 @@ export function SwapUI({ market }: { market: string }) {
         "Failed to create order";
       toast.error(errorMsg);
       console.error("Order failed:", err);
+    }
+  };
+
+  const handleCheckboxChange = (
+    e: React.ChangeEvent<HTMLInputElement>,
+    type: "ioc" | "postOnly"
+  ) => {
+    if (type === "ioc") {
+      setIoc(e.target.checked);
+      setPostOnly(false);
+    }
+    if (type === "postOnly") {
+      setPostOnly(e.target.checked);
+      setIoc(false);
     }
   };
 
@@ -187,6 +205,29 @@ export function SwapUI({ market }: { market: string }) {
       >
         {activeTab === "buy" ? `Buy ${baseAsset}` : `Sell ${baseAsset}`}
       </button>
+
+      {type == "limit" && (
+        <div className="mt-5 flex items-center gap-4 text-zinc-400">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={ioc}
+              onChange={(e) => handleCheckboxChange(e, "ioc")}
+              className="appearance-none h-4 w-4 border border-zinc-600 bg-zinc-900 checked:bg-zinc-900 checked:border-zinc-400 rounded-sm checked:after:content-['✔'] checked:after:text-white checked:after:text-xs checked:after:block checked:after:text-center checked:after:leading-4"
+            />
+            IOC
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={postOnly}
+              onChange={(e) => handleCheckboxChange(e, "postOnly")}
+              className="appearance-none h-4 w-4 border border-zinc-600 bg-zinc-900 checked:bg-zinc-900 checked:border-zinc-400 rounded-sm checked:after:content-['✔'] checked:after:text-white checked:after:text-xs checked:after:block checked:after:text-center checked:after:leading-4"
+            />
+            Post Only
+          </label>
+        </div>
+      )}
     </div>
   );
 }

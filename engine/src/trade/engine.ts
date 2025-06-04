@@ -235,6 +235,7 @@ export class Engine {
           quantity: BigInt(data.quantity),
           filled: 0n, // Assume no fills initially
           orderType: data.orderType, // "limit" or "market"
+          createdAt: Date.now(),
         };
         // Replay by processing the order on the orderbook.
         orderbook.processOrder(order);
@@ -339,15 +340,25 @@ export class Engine {
     switch (message.type) {
       case CREATE_ORDER:
         try {
-          const { market, quantity, price, side, userId, orderType } =
-            message.data;
+          const {
+            market,
+            quantity,
+            price,
+            side,
+            userId,
+            orderType,
+            ioc,
+            postOnly,
+          } = message.data;
           const { executedQty, fills, orderId } = await this.createOrder(
             market,
             quantity,
             price,
             side,
             userId,
-            orderType
+            orderType,
+            ioc,
+            postOnly
           );
 
           // Respond success
@@ -385,8 +396,8 @@ export class Engine {
 
       case CANCEL_ORDER:
         try {
-          const { orderId, market } = message.data;
-          this.cancelOrder(orderId, market, clientId);
+          const { orderId, market, userId } = message.data;
+          this.cancelOrder(orderId, market, clientId, userId);
         } catch (error) {
           console.log("Error while cancelling order");
           console.log(error);
@@ -411,6 +422,7 @@ export class Engine {
           }
 
           const openOrders = openOrderbook.getOpenOrders(userId);
+          console.log(" openOrders ~ openOrders:", openOrders);
           const payload = openOrders.map((order) => ({
             orderId: order.orderId,
             filled: order.filled.toString(),
@@ -588,7 +600,9 @@ export class Engine {
     rawPrice: string,
     side: "buy" | "sell",
     userId: string,
-    orderType: "limit" | "market"
+    orderType: "limit" | "market",
+    ioc?: boolean,
+    postOnly?: boolean
   ): Promise<{ executedQty: bigint; fills: Fill[]; orderId: string }> {
     const orderbook = this.orderBooks.find((ob) => ob.ticker() === market);
     if (!orderbook) throw new Error(`No OrderBook found for ${market}`);
@@ -664,9 +678,18 @@ export class Engine {
       quantity,
       filled: 0n,
       orderType,
+      createdAt: Date.now(),
+      ioc,
+      postOnly,
     };
     const { executedQty, fills } = orderbook.processOrder(order);
+    const touchedUsers = new Set<string>();
+    touchedUsers.add(userId); // taker
+    for (const f of fills) touchedUsers.add(f.makerUserId!);
 
+    this.publishOpenOrdersSnapshot(orderbook, [...touchedUsers]);
+
+    console.log("fills", fills);
     // 4) Update balances in memory for taker & maker(s)
     this.updateBalance(userId, baseAsset, quoteAsset, side, fills);
 
@@ -691,6 +714,7 @@ export class Engine {
     } else {
       this.publishWsDepthUpdates(fills, price, side, market);
     }
+    // this.publishOpenOrders(order, userId, executedQty, fills);
     this.publishWsTrades(fills, market, userId);
     this.updateAndPublishTicker(fills, market);
 
@@ -758,7 +782,12 @@ export class Engine {
   /**
    * Cancel an existing order and free up locked balances.
    */
-  public cancelOrder(orderId: string, market: string, clientId: string) {
+  public cancelOrder(
+    orderId: string,
+    market: string,
+    clientId: string,
+    userId: string
+  ) {
     const cancelOrderbook = this.orderBooks.find((o) => o.ticker() === market);
     if (!cancelOrderbook) {
       throw new Error("No orderbook found");
@@ -807,6 +836,83 @@ export class Engine {
         remainingQty: (order.quantity - order.filled).toString(),
       },
     });
+    this.publishOpenOrdersSnapshot(cancelOrderbook, [order.userId]);
+  }
+
+  // public publishOpenOrders(
+  //   order: Order,
+  //   userId: string,
+  //   executedQty: bigint,
+  //   fills: Fill[]
+  // ) {
+  //   RedisManager.getInstance().publishMessage(`orders@${userId}`, {
+  //     stream: `orders@${userId}`,
+  //     data: {
+  //       e: "order",
+  //       oI: order?.orderId,
+  //       s: order.side,
+  //       p: order.price,
+  //       q: order.quantity,
+  //       eq: executedQty.toString(),
+  //       t: order.createdAt,
+  //     },
+  //   });
+  //   // fills [
+  //   //   {
+  //   //     price: 50500000n,
+  //   //     quantity: 50000000n,
+  //   //     tradeId: 0,
+  //   //     makerUserId: 'user1',
+  //   //     makerOrderId: '3e92359c-7cbb-4eb1-9383-0371f57b32a5',
+  //   //     timestamp: 1748676193449
+  //   //   }
+  //   // ]
+  //   for (const fill of fills) {
+  //     RedisManager.getInstance().publishMessage(`orders@${fill?.makerUserId}`, {
+  //       stream: `orders@${fill?.makerUserId}`,
+  //       data: {
+  //         e: "order",
+  //         oI: fill?.makerOrderId,
+  //         s: order?.side == "buy" ? "buy" : "sell",
+  //         p: fill?.price,
+  //         q: fill?.quantity,
+  //         eq: executedQty?.toString(),
+  //         t: order?.createdAt,
+  //       },
+  //     });
+  //   }
+  // }
+  /**
+   * Push the ENTIRE open-order snapshot for every user that was touched
+   * by the last match.  That guarantees consistency even after many
+   * partial fills, cancels, or edits.
+   */
+  private publishOpenOrdersSnapshot(
+    orderbook: OrderBook,
+    userIds: string[] // taker + every maker
+  ) {
+    console.log(userIds);
+    for (const uid of userIds) {
+      const orders = orderbook.getOpenOrders(uid).map((o) => ({
+        oI: o.orderId,
+        s: o.side, // correct side
+        p: o.price.toString(),
+        q: o.quantity.toString(), // full size
+        eQ: o.filled.toString(), // cumulative fill for THIS order
+        st:
+          o.filled === o.quantity
+            ? "FILLED"
+            : o.filled === 0n
+            ? "NEW"
+            : "PARTIALLY_FILLED",
+        t: o.createdAt, // original ts
+      }));
+
+      RedisManager.getInstance().publishMessage(`orders@${uid}`, {
+        stream: `orders@${uid}`,
+        data: { e: "openOrders", orders },
+      });
+    }
   }
 
   /**

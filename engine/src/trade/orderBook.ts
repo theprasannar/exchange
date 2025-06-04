@@ -8,6 +8,9 @@ export interface Order {
   filled: bigint;
   userId: string;
   orderType: "limit" | "market";
+  createdAt: number;
+  ioc?: boolean;
+  postOnly?: boolean;
 }
 
 export interface Fill {
@@ -87,7 +90,7 @@ export class OrderBook {
       order.filled = order.filled + executedQty;
 
       // If fully filled, do not push to bids
-      if (order.filled === order.quantity) {
+      if (order.filled === order.quantity || order.ioc) {
         return { executedQty, fills };
       }
 
@@ -98,7 +101,7 @@ export class OrderBook {
       ({ executedQty, fills } = this.matchAsk(order));
       order.filled = order.filled + executedQty;
 
-      if (order.filled === order.quantity) {
+      if (order.filled === order.quantity || order.ioc) {
         return { executedQty, fills };
       }
 
@@ -219,7 +222,11 @@ export class OrderBook {
     let executedQty: bigint = 0n;
     const fills: Fill[] = [];
     // Sort asks by ascending price.
-    this.asks.sort((a, b) => (a.price < b.price ? -1 : 1));
+    this.asks.sort((a, b) => {
+      if (a.price < b.price) return -1;
+      if (a.price > b.price) return 1;
+      return a.createdAt - b.createdAt; // oldest first
+    });
     for (let i = 0; i < this.asks.length && executedQty < order.quantity; i++) {
       const ask = this.asks[i];
       const available = ask.quantity - ask.filled;
@@ -251,7 +258,11 @@ export class OrderBook {
     let executedQty: bigint = 0n;
     const fills: Fill[] = [];
     // Sort bids by descending price.
-    this.bids.sort((a, b) => (a.price > b.price ? -1 : 1));
+    this.bids.sort((a, b) => {
+      if (a.price > b.price) return -1;
+      if (a.price < b.price) return 1;
+      return a.createdAt - b.createdAt; // oldest first
+    });
     for (let i = 0; i < this.bids.length && executedQty < order.quantity; i++) {
       const bid = this.bids[i];
       const available = bid.quantity - bid.filled;
@@ -284,17 +295,18 @@ export class OrderBook {
     for (let i = 0; i < this.bids.length; i++) {
       const priceStr = this.bids[i].price.toString();
       const openQty = this.bids[i].quantity - this.bids[i].filled;
-      // If it's negative for some rounding reason, treat it as zero
-      bidsObj[priceStr] = openQty > 0n ? openQty : 0n;
+      // INITIALIZE to 0n if missing, then ADD
+      bidsObj[priceStr] =
+        (bidsObj[priceStr] || 0n) + (openQty > 0n ? openQty : 0n);
     }
 
-    // Aggregate asks
+    // Aggregate asks (now summing by price level)
     for (let i = 0; i < this.asks.length; i++) {
       const priceStr = this.asks[i].price.toString();
       const openQty = this.asks[i].quantity - this.asks[i].filled;
-      asksObj[priceStr] = openQty > 0n ? openQty : 0n;
+      asksObj[priceStr] =
+        (asksObj[priceStr] || 0n) + (openQty > 0n ? openQty : 0n);
     }
-
     // Sort bids descending (highest price first)
     const sortedBids = Object.keys(bidsObj)
       .filter((price) => price !== "undefined")

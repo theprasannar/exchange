@@ -18,6 +18,8 @@ export type MessageFromAPI =
         side: "buy" | "sell";
         userId: string;
         orderType: "limit" | "market";
+        ioc?: boolean;
+        postOnly?: boolean;
       };
     }
   | {
@@ -25,6 +27,7 @@ export type MessageFromAPI =
       data: {
         orderId: string;
         market: string;
+        userId: string;
       };
     }
   | {

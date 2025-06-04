@@ -1,21 +1,22 @@
 export interface CreateOrder {
-    market: string;
-    price?: string;
-    quantity: string;
-    side: "buy" | "sell";
-    userId: string;
-    orderType: "limit" | "market";
-
+  market: string;
+  price?: string;
+  quantity: string;
+  side: "buy" | "sell";
+  userId: string;
+  orderType: "limit" | "market";
+  ioc?: boolean;
+  postOnly?: boolean;
 }
 
 export interface Fill {
-    price: string;
-    quantity: string;
-    tradeId: number;
+  price: string;
+  quantity: string;
+  tradeId: number;
 }
 
 export interface CreateOrderResponse {
-    orderId: string;
-    executedQty: string;
-    fills: Fill[];
+  orderId: string;
+  executedQty: string;
+  fills: Fill[];
 }

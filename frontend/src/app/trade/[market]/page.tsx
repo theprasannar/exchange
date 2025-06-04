@@ -55,7 +55,7 @@ export default function TradePage() {
 
         {/* Open Orders */}
         <div className="bg-zinc-800/50 rounded-xl backdrop-blur-sm border border-zinc-700/50 p-4">
-          <h3 className="text-sm font-medium text-zinc-300 mb-3">
+          <h3 className="text-md font-medium text-blue-400 border-b-1 border-blue-400 mb-3">
             Your Open Orders
           </h3>
           <OpenOrders market={market as string} />

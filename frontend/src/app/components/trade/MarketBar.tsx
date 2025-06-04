@@ -29,27 +29,23 @@ export const MarketBar = ({ market }: { market: string }) => {
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between p-4 gap-4">
         {/* Market Selector */}
         <div className="relative">
-          <button
-            onClick={() => setShowMarketSelector(!showMarketSelector)}
-            className="flex items-center space-x-3 bg-zinc-800 hover:bg-zinc-700 transition-colors rounded-lg px-4 py-2 border border-zinc-700"
-          >
+          <div className="flex items-center space-x-3 bg-zinc-800 rounded-lg px-4 py-2 border border-zinc-700">
             <div className="flex items-center">
               <div className="relative flex items-center">
                 <img
                   src="/images/btc.webp"
-                  className="z-10 rounded-full h-6 w-6 mt-4"
+                  className="z-10 rounded-full h-6 w-6"
                 />
                 <img
                   src="/images/usdc.webp"
-                  className="h-6 w-6 -ml-2 mt-4 rounded-full"
+                  className="h-6 w-6 -ml-2 rounded-full"
                 />
               </div>
               <span className="ml-3 font-medium">
                 {baseCurrency}/{quoteCurrency}
               </span>
             </div>
-            <ChevronDown className="h-4 w-4 text-zinc-400" />
-          </button>
+          </div>
 
           {showMarketSelector && (
             <div className="absolute z-10 mt-2 w-full bg-zinc-800 rounded-lg shadow-lg shadow-black/20 border border-zinc-700">

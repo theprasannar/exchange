@@ -1,7 +1,7 @@
-import { createClient, RedisClientType } from 'redis';
-import { DbMessage } from './types/MessageToDatabase';
-import { MessageToAPI } from './types/MessageToAPI';
-import { WsMessage } from './types/MessageToWs';
+import { createClient, RedisClientType } from "redis";
+import { DbMessage } from "./types/MessageToDatabase";
+import { MessageToAPI } from "./types/MessageToAPI";
+import { WsMessage } from "./types/MessageToWs";
 
 export class RedisManager {
   private static instance: RedisManager;
@@ -46,10 +46,14 @@ export class RedisManager {
 
   public pushMessage(message: DbMessage) {
     // Use publisher client
-    this.publisherClient.lPush('db_processor', JSON.stringify(message));
+    this.publisherClient.lPush("db_processor", JSON.stringify(message));
   }
 
-  public async getZRangeByScore(key: string, min: string, max: string): Promise<string[]> {
+  public async getZRangeByScore(
+    key: string,
+    min: string,
+    max: string
+  ): Promise<string[]> {
     return await this.publisherClient.zRangeByScore(key, min, max);
   }
 
@@ -57,7 +61,6 @@ export class RedisManager {
     await this.publisherClient.lPush(key, value);
   }
 
-  
   /**
    * ============ SUBSCRIBE METHOD ============
    * This puts the "subscriberClient" into subscriber mode for the given channel.

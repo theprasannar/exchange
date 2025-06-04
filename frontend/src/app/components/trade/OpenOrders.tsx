@@ -6,84 +6,45 @@ import { Order } from "../../types/types";
 import { cancelOrder, getOpenOrders } from "../../lib/api";
 import toast from "react-hot-toast";
 import { useAuth } from "../../../context/AuthContext";
+import { useAppSelector } from "../../hooks/hooks";
+import { useDispatch } from "react-redux";
+import {
+  fetchOpenOrders,
+  subscribeToOpenOrder,
+} from "../../store/openOrderSlice";
+import { AnyAction, ThunkDispatch } from "@reduxjs/toolkit";
 
 const OpenOrders = ({ market }: { market: string }) => {
-  const [openOrders, setOpenOrders] = useState<Order[]>([]);
+  const openOrders = useAppSelector((state) => state.openOrder.openOrders);
+  console.log(openOrders);
+  const dispatch: ThunkDispatch<any, any, AnyAction> = useDispatch();
+
+  const [confirmCancelOrderId, setConfirmCancelOrderId] = useState<
+    string | null
+  >(null);
   const [cancelingId, setCancelingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const { userId } = useAuth();
+  const payload = { market, userId };
 
-  const fetchOpenOrders = async () => {
-    const dummyOrders: Order[] = [
-      {
-        orderId: "ORD-001",
-        side: "buy",
-        price: "45800.00",
-        quantity: "0.1000",
-        filled: "0.0500",
-        status: "PARTIALLY_FILLED",
-        createdAt: new Date().toISOString(),
-      },
-      {
-        orderId: "ORD-002",
-        side: "sell",
-        price: "46000.00",
-        quantity: "0.2000",
-        filled: "0.0000",
-        status: "PENDING",
-        createdAt: new Date().toISOString(),
-      },
-      {
-        orderId: "ORD-003",
-        side: "buy",
-        price: "45750.00",
-        quantity: "0.1500",
-        filled: "0.1500",
-        status: "FILLED",
-        createdAt: new Date().toISOString(),
-      },
-      {
-        orderId: "ORD-004",
-        side: "sell",
-        price: "46100.00",
-        quantity: "0.3000",
-        filled: "0.0500",
-        status: "PARTIALLY_FILLED",
-        createdAt: new Date().toISOString(),
-      },
-      {
-        orderId: "ORD-005",
-        side: "buy",
-        price: "45600.00",
-        quantity: "0.5000",
-        filled: "0.0000",
-        status: "PENDING",
-        createdAt: new Date().toISOString(),
-      },
-      {
-        orderId: "ORD-006",
-        side: "sell",
-        price: "46200.00",
-        quantity: "0.2500",
-        filled: "0.2500",
-        status: "FILLED",
-        createdAt: new Date().toISOString(),
-      },
-    ];
-
-    setOpenOrders(dummyOrders);
-  };
-
-  // ✅ Moved OUTSIDE and runs on load
   useEffect(() => {
-    fetchOpenOrders();
-  }, [market]);
+    //@ts-ignore
+    dispatch(fetchOpenOrders(payload));
+
+    const unsubscribe = dispatch(subscribeToOpenOrder(market, userId!));
+
+    return () => {
+      unsubscribe();
+    };
+  }, [market, userId]);
+
   const handleCancel = async (orderId: string) => {
     setCancelingId(orderId);
     try {
-      await cancelOrder(orderId);
+      await cancelOrder(orderId, market, userId);
       toast.success("Order cancelled successfully");
-      fetchOpenOrders();
+      //@ts-ignore
+      dispatch(fetchOpenOrders(payload));
     } catch (error) {
       setError(error as string);
       toast.error("Error cancelling order");
@@ -93,6 +54,7 @@ const OpenOrders = ({ market }: { market: string }) => {
   };
 
   const formatTime = (timestamp: string) => {
+    console.log(timestamp);
     const date = new Date(timestamp);
     return date.toLocaleString([], {
       month: "short",
@@ -109,7 +71,6 @@ const OpenOrders = ({ market }: { market: string }) => {
     return ((filled / qty) * 100).toFixed(0);
   };
 
-  // if (loading) return <div className="p-4 text-zinc-400">Loading...</div>;
   if (error) return <div className="p-4 text-red-400">Error: {error}</div>;
 
   return (
@@ -133,7 +94,7 @@ const OpenOrders = ({ market }: { market: string }) => {
               </tr>
             </thead>
             <tbody>
-              {openOrders.map((order) => (
+              {openOrders?.map((order) => (
                 <tr
                   key={order.orderId}
                   className="border-b border-zinc-800/30 hover:bg-zinc-800/30"
@@ -171,7 +132,7 @@ const OpenOrders = ({ market }: { market: string }) => {
                   </td>
                   <td className="px-3 py-2 text-right">
                     <button
-                      onClick={() => handleCancel(order.orderId)}
+                      onClick={() => setConfirmCancelOrderId(order.orderId)}
                       disabled={cancelingId === order.orderId}
                       className="text-zinc-400 hover:text-red-400 transition-colors"
                     >
@@ -182,6 +143,35 @@ const OpenOrders = ({ market }: { market: string }) => {
               ))}
             </tbody>
           </table>
+          {confirmCancelOrderId && (
+            <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
+              <div className="bg-zinc-900 border border-zinc-700 rounded-md shadow-xl p-6 max-w-sm w-full">
+                <h2 className="text-lg font-medium text-zinc-100 mb-2">
+                  Cancel Order?
+                </h2>
+                <p className="text-sm text-zinc-400 mb-4">
+                  Are you sure you want to cancel this order?
+                </p>
+                <div className="flex justify-end gap-3">
+                  <button
+                    onClick={() => setConfirmCancelOrderId(null)}
+                    className="px-4 py-1 text-sm bg-zinc-700 text-zinc-300 rounded hover:bg-zinc-600"
+                  >
+                    No
+                  </button>
+                  <button
+                    onClick={() => {
+                      handleCancel(confirmCancelOrderId);
+                      setConfirmCancelOrderId(null);
+                    }}
+                    className="px-4 py-1 text-sm bg-red-600 text-white rounded hover:bg-red-500"
+                  >
+                    Yes, Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
