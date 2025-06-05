@@ -682,7 +682,31 @@ export class Engine {
       ioc,
       postOnly,
     };
+
+    if (ioc && orderType !== "limit")
+      throw new Error("IOC is only valid for limit orders");
+
+    if (ioc && postOnly)
+      throw new Error("IOC and Post Only cannot be combined");
+
     const { executedQty, fills } = orderbook.processOrder(order);
+
+    if (ioc) {
+      const unfilledQty = quantity - executedQty;
+      if (unfilledQty > 0n) {
+        const userBalance = this.balance.get(userId);
+        if (!userBalance)
+          throw new Error(`No balance found for user ${userId}`);
+        if (side === "buy") {
+          const totalCost = mulDiv(price, unfilledQty, BTC_SCALE.toString());
+          userBalance[quoteAsset].available += totalCost;
+          userBalance[quoteAsset].locked -= totalCost;
+        } else {
+          userBalance[baseAsset].available += unfilledQty;
+          userBalance[baseAsset].locked -= unfilledQty;
+        }
+      }
+    }
     const touchedUsers = new Set<string>();
     touchedUsers.add(userId); // taker
     for (const f of fills) touchedUsers.add(f.makerUserId!);
@@ -692,6 +716,22 @@ export class Engine {
     console.log("fills", fills);
     // 4) Update balances in memory for taker & maker(s)
     this.updateBalance(userId, baseAsset, quoteAsset, side, fills);
+
+    // -- BUY-side price-difference refund -------------------------
+    if (side === "buy") {
+      const costExecuted = fills.reduce(
+        (acc, f) => acc + mulDiv(f.price, f.quantity, BTC_SCALE.toString()),
+        0n
+      );
+      const worstCase = mulDiv(price, executedQty, BTC_SCALE.toString());
+      const diff = worstCase - costExecuted; // positive when trades were cheaper
+      if (diff > 0n) {
+        const qb = this.balance.get(userId)![quoteAsset];
+        qb.locked -= diff;
+        qb.available += diff;
+      }
+    }
+    // -------------------------------------------------------------
 
     // 5) Publish BALANCE_UPDATE events so the DB stays consistent
     //    (We do this for taker + any maker user IDs.)
