@@ -32,25 +32,39 @@ export function SwapUI({ market }: { market: string }) {
   };
 
   useEffect(() => {
-    if (!balance) return;
+    setQuantity("");
+    setSlider(0);
+  }, [activeTab, type]);
 
-    const pct = slider / 100;
-    if (activeTab == "buy") {
-      const quoteBalance = parseFloat(balance?.USDC?.available || "0");
-      const p = type === "limit" ? parseFloat(price) : parseFloat(lastPrice);
+  const handleSliderChange = (pct: number) => {
+    setSlider(pct);
 
-      if (!p) {
-        setQuantity("");
-        return;
-      }
-      const amount = (quoteBalance * pct) / p;
-      setQuantity(amount.toFixed(6));
-    } else {
-      const baseBalance = parseFloat(balance?.BTC?.available || "0");
-      const amount = baseBalance * pct;
-      setQuantity(amount.toFixed(6));
+    if (pct == 0 || !balance) {
+      setQuantity("");
+      return;
     }
-  }, [slider, price, balance, type, activeTab, lastPrice]);
+    const fraction = pct / 100;
+
+    const wallet = parseFloat(
+      balance[activeTab == "buy" ? quoteAsset : baseAsset]?.available ?? "0"
+    );
+
+    const priceNum =
+      type == "limit"
+        ? parseFloat(price) // user-typed limit price
+        : parseFloat(lastPrice);
+
+    if (!priceNum || Number.isNaN(priceNum)) {
+      setQuantity("");
+      return;
+    }
+    const amount =
+      activeTab === "buy"
+        ? (wallet * fraction) / priceNum // buying: quote → base
+        : wallet * fraction; // selling: slice base
+
+    setQuantity(amount.toFixed(6));
+  };
   const fetchBalance = async () => {
     if (!userId) return;
 
@@ -222,7 +236,7 @@ export function SwapUI({ market }: { market: string }) {
           min="0"
           max="100"
           value={slider}
-          onChange={(e) => setSlider(parseInt(e.target.value))}
+          onChange={(e) => handleSliderChange(parseInt(e.target.value))}
           className="w-full h-2 bg-zinc-700 rounded-lg appearance-none cursor-pointer"
         />
 
@@ -231,7 +245,7 @@ export function SwapUI({ market }: { market: string }) {
           {[0, 25, 50, 75, 100].map((pct) => (
             <button
               key={pct}
-              onClick={() => setSlider(pct)}
+              onClick={() => handleSliderChange(pct)}
               className={`text-xs py-1 px-2 rounded ${
                 slider === pct
                   ? "bg-blue-500/20 text-blue-400"

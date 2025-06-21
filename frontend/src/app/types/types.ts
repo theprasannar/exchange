@@ -77,11 +77,7 @@ export interface Order {
 }
 
 export interface Balance {
-  USDC: {
-    available: string;
-    locked: string;
-  };
-  BTC: {
+  [symbol: string]: {
     available: string;
     locked: string;
   };
