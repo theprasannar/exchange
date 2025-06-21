@@ -142,7 +142,7 @@ export const getOpenOrdersController = async (
       quantity: o.quantity.toString(),
       filled: o.filled.toString(),
       userId: o.userId,
-      // createdAt: o.createdAt.toISOString(),
+      createdAt: o.createdAt,
     }));
 
     // 5) Send JSON array back

@@ -80,6 +80,7 @@ export class OrderBook {
     }
     throw new Error(`Invalid order type: ${order.orderType}`);
   }
+
   addOrder(order: Order): { executedQty: bigint; fills: Fill[] } {
     let executedQty: bigint;
     let fills: Fill[];
@@ -353,5 +354,16 @@ export class OrderBook {
     const asks = this.asks.filter((x) => x.userId === userId);
     const bids = this.bids.filter((x) => x.userId === userId);
     return [...asks, ...bids];
+  }
+
+  // orderBook.ts  – add near the bottom of the class
+  public wouldTakeLiquidity(side: "buy" | "sell", price: bigint): boolean {
+    if (side === "buy") {
+      const bestAsk = this.asks.length ? this.asks[0].price : null;
+      return bestAsk !== null && price >= bestAsk;
+    } else {
+      const bestBid = this.bids.length ? this.bids[0].price : null;
+      return bestBid !== null && price <= bestBid;
+    }
   }
 }

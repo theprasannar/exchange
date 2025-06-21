@@ -6,17 +6,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "../../context/AuthContext";
 import { getUserBalance, addBalance } from "../lib/api";
 import { Wallet, TrendingUp, LogOut, Plus, ArrowUpRight } from "lucide-react";
-
-interface Balance {
-  USDC: {
-    available: string;
-    locked: string;
-  };
-  BTC: {
-    available: string;
-    locked: string;
-  };
-}
+import { Balance } from "../types/types";
 
 export default function Dashboard() {
   const router = useRouter();

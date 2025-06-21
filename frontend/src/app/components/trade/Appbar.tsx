@@ -41,29 +41,31 @@ export const Appbar = () => {
           </div>
 
           {/* Desktop Navigation */}
-          <div className="hidden md:flex items-center space-x-6">
-            <a
-              href="#"
-              className="text-zinc-400 hover:text-white flex items-center gap-1.5 px-2 py-1 rounded-lg hover:bg-zinc-800/50 transition-all duration-200"
-            >
-              <LineChart size={16} />
-              <span>Trade</span>
-            </a>
-            <a
-              onClick={() => router.push("/home")}
-              className="text-zinc-400 hover:text-white flex items-center gap-1.5 px-2 py-1 rounded-lg hover:bg-zinc-800/50 transition-all duration-200"
-            >
-              <LandmarkIcon size={16} />
-              <span>Markets</span>
-            </a>
-            <a
-              onClick={() => router.push("/me")}
-              className="text-zinc-400 hover:text-white flex items-center gap-1.5 px-2 py-1 rounded-lg hover:bg-zinc-800/50 transition-all duration-200"
-            >
-              <ShieldIcon size={16} />
-              <span>Wallet</span>
-            </a>
-          </div>
+          {isAuthenticated && (
+            <div className="hidden md:flex items-center space-x-6">
+              {/* <a
+                href="#"
+                className="text-zinc-400 hover:text-white flex items-center gap-1.5 px-2 py-1 rounded-lg hover:bg-zinc-800/50 transition-all duration-200"
+              >
+                <LineChart size={16} />
+                <span>Trade</span>
+              </a> */}
+              <a
+                onClick={() => router.push("/home")}
+                className="text-zinc-400 hover:text-white flex items-center gap-1.5 px-2 py-1 rounded-lg hover:bg-zinc-800/50 transition-all duration-200"
+              >
+                <LandmarkIcon size={16} />
+                <span>Markets</span>
+              </a>
+              <a
+                onClick={() => router.push("/me")}
+                className="text-zinc-400 hover:text-white flex items-center gap-1.5 px-2 py-1 rounded-lg hover:bg-zinc-800/50 transition-all duration-200"
+              >
+                <ShieldIcon size={16} />
+                <span>Wallet</span>
+              </a>
+            </div>
+          )}
 
           {/* Auth Buttons */}
           <div className="hidden md:flex items-center space-x-4">

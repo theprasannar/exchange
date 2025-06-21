@@ -57,6 +57,11 @@ export type MessageToAPI =
         low: string;
         volume: string;
         symbol?: string;
+        high24h: string;
+        low24h: string;
+        volume24h: string;
+        open24h: string;
+        change24h: number;
       };
     }
   | {

@@ -11,6 +11,12 @@ export interface TickerState {
   volume: string;
   symbol: string;
   updatedAt: number | null;
+  createdAt?: number;
+  volume24h: string;
+  high24h: string;
+  low24h: string;
+  open24h: string;
+  change24h: string;
 }
 
 const initialState: TickerState = {
@@ -20,6 +26,11 @@ const initialState: TickerState = {
   volume: "0",
   symbol: "",
   updatedAt: null,
+  volume24h: "0",
+  high24h: "0",
+  low24h: "0",
+  open24h: "0",
+  change24h: "0",
 };
 
 // Async thunk to fetch initial ticker data from an API endpoint.
@@ -29,12 +40,17 @@ export const fetchTickerData = createAsyncThunk(
     try {
       const data = await getTicker(market);
       console.log(" data:", data);
-      // Assume data has properties c, h, l, v, s, id (all as strings/numbers) in atomic format
       return {
         lastPrice: atomicToUsdc(BigInt(data.currentPrice)),
         high: atomicToUsdc(BigInt(data.high)),
         low: atomicToUsdc(BigInt(data.low)),
-        volume: atomicToBtc(BigInt(data.volume)), // volume can remain as is or be converted if needed
+        volume: atomicToBtc(BigInt(data.volume)),
+        high24h: atomicToUsdc(BigInt(data.high24h)),
+        low24h: atomicToUsdc(BigInt(data.low24h)),
+        volume24h: atomicToBtc(BigInt(data.volume24h)),
+        change24h: String(data.change24h),
+        open24h: atomicToUsdc(BigInt(data.open24h)),
+        updatedAt: Date.now(),
         symbol: data.symbol,
       };
     } catch (error) {
@@ -54,6 +70,11 @@ const tickerSlice = createSlice({
       state.volume = action.payload.volume;
       state.symbol = action.payload.symbol;
       state.updatedAt = action.payload.updatedAt;
+      state.high24h = action.payload.high24h;
+      state.low24h = action.payload.low24h;
+      state.volume24h = action.payload.volume24h;
+      state.open24h = action.payload.open24h;
+      state.change24h = action.payload.change24h;
     },
   },
   extraReducers: (builder) => {
@@ -64,6 +85,11 @@ const tickerSlice = createSlice({
       state.volume = action.payload.volume;
       state.symbol = action.payload.symbol;
       state.updatedAt = action.payload.updatedAt;
+      state.high24h = action.payload.high24h;
+      state.low24h = action.payload.low24h;
+      state.volume24h = action.payload.volume24h;
+      state.open24h = action.payload.open24h;
+      state.change24h = action.payload.change24h;
     });
     builder.addCase(fetchTickerData.rejected, (state, action) => {
       console.error("Failed to fetch ticker data:", action.payload);
@@ -81,6 +107,18 @@ export const subscribeTicker = (market: string) => (dispatch: any) => {
     "ticker",
     (msg) => {
       const data = msg.data;
+      if (data.c == null || data.o24 == null) {
+        console.warn("Missing values for change24h calculation:", {
+          last: data.c,
+          o24: data.o24,
+        });
+      }
+      const change24h = data.ch24
+        ? Number(
+            ((BigInt(data.c) - BigInt(data.o24)) * 10000n) / BigInt(data.o24)
+          ) / 100
+        : 0;
+
       console.log(" manager.registerCallback ~ data:", data);
       dispatch(
         tickerSlice.actions.updateTicker({
@@ -90,6 +128,11 @@ export const subscribeTicker = (market: string) => (dispatch: any) => {
           volume: atomicToBtc(BigInt(data.v)) || "0",
           symbol: data.s || market,
           updatedAt: data.id,
+          high24h: data.h24 ? atomicToUsdc(BigInt(data.h24)) : "0",
+          low24h: data.l24 ? atomicToUsdc(BigInt(data.l24)) : "0",
+          open24h: data.o24 ? atomicToUsdc(BigInt(data.o24)) : "0",
+          volume24h: data.v24 ? atomicToBtc(BigInt(data.v24)) : "0",
+          change24h: change24h.toString() ?? "0",
         })
       );
     },

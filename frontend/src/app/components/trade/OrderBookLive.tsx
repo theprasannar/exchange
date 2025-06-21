@@ -61,7 +61,7 @@ export default function OrderBook({ market }: { market: string }) {
         ))}
 
         {/* Spread Indicator */}
-        {asksData[0] && bidsData[0] && (
+        {/* {asksData[0] && bidsData[0] && (
           <div className="px-4 py-2 bg-zinc-800/70 text-center text-xs text-zinc-400">
             Spread:{" "}
             {(
@@ -75,7 +75,7 @@ export default function OrderBook({ market }: { market: string }) {
             ).toFixed(2)}
             %)
           </div>
-        )}
+        )} */}
 
         {/* Bids */}
         {bidsData.map((bid, i) => (

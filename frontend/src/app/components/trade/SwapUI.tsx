@@ -1,9 +1,11 @@
 "use client";
 
-import { useState } from "react";
-import { createOrder } from "../../lib/api";
+import { useEffect, useState } from "react";
+import { createOrder, getUserBalance } from "../../lib/api";
 import toast from "react-hot-toast";
 import { useAuth } from "../../../context/AuthContext";
+import { Balance } from "../../types/types";
+import { useAppSelector } from "../../hooks/hooks";
 
 export function SwapUI({ market }: { market: string }) {
   const { userId } = useAuth();
@@ -14,13 +16,56 @@ export function SwapUI({ market }: { market: string }) {
   const [slider, setSlider] = useState(0);
   const [ioc, setIoc] = useState(false);
   const [postOnly, setPostOnly] = useState(false);
+  const [balance, setBalance] = useState<Balance | null>(null);
+  const lastPrice = useAppSelector((state) => state.ticker.lastPrice);
 
   const [baseAsset, quoteAsset] = market.split("_");
 
   const calculateTotal = () => {
-    if (!price || !quantity) return "0.00";
-    return (parseFloat(price) * parseFloat(quantity)).toFixed(2);
+    const qty = parseFloat(quantity);
+    if (!qty) return "0.00";
+
+    const p = type === "limit" ? parseFloat(price) : parseFloat(lastPrice);
+    if (!p) return "0.00";
+
+    return (p * qty).toFixed();
   };
+
+  useEffect(() => {
+    if (!balance) return;
+
+    const pct = slider / 100;
+    if (activeTab == "buy") {
+      const quoteBalance = parseFloat(balance?.USDC?.available || "0");
+      const p = type === "limit" ? parseFloat(price) : parseFloat(lastPrice);
+
+      if (!p) {
+        setQuantity("");
+        return;
+      }
+      const amount = (quoteBalance * pct) / p;
+      setQuantity(amount.toFixed(6));
+    } else {
+      const baseBalance = parseFloat(balance?.BTC?.available || "0");
+      const amount = baseBalance * pct;
+      setQuantity(amount.toFixed(6));
+    }
+  }, [slider, price, balance, type, activeTab, lastPrice]);
+  const fetchBalance = async () => {
+    if (!userId) return;
+
+    try {
+      const balanceData = await getUserBalance(userId);
+      setBalance(balanceData);
+    } catch (error) {
+      toast.error("Failed to fetch balance");
+      console.error("Balance fetch error:", error);
+    }
+  };
+
+  useEffect(() => {
+    fetchBalance();
+  }, [userId]);
 
   const handleCreateOrder = async () => {
     if (!userId) return toast.error("Please login first");
@@ -141,7 +186,7 @@ export function SwapUI({ market }: { market: string }) {
       )}
 
       {/* Quantity Input */}
-      <div className="mb-4">
+      <div className="mb-8">
         <label className="block text-xs text-zinc-400 mb-1">Amount</label>
         <div className="relative">
           <input
@@ -157,8 +202,21 @@ export function SwapUI({ market }: { market: string }) {
         </div>
       </div>
 
-      {/* Percentage Slider */}
-      <div className="mb-4">
+      {/* Percentage Slider with Floating Tooltip */}
+      <div className="relative w-full mb-4">
+        {/* Floating Tooltip */}
+        <div
+          className="absolute text-sm text-blue-400 whitespace-nowrap transition-all"
+          style={{
+            left: `${slider}%`,
+            transform: "translateX(-50%)",
+            bottom: `calc(100% + 4px)`,
+          }}
+        >
+          {slider}%
+        </div>
+
+        {/* Range Slider */}
         <input
           type="range"
           min="0"
@@ -167,8 +225,10 @@ export function SwapUI({ market }: { market: string }) {
           onChange={(e) => setSlider(parseInt(e.target.value))}
           className="w-full h-2 bg-zinc-700 rounded-lg appearance-none cursor-pointer"
         />
+
+        {/* Quick-Select Buttons */}
         <div className="flex justify-between mt-2">
-          {[25, 50, 75, 100].map((pct) => (
+          {[0, 25, 50, 75, 100].map((pct) => (
             <button
               key={pct}
               onClick={() => setSlider(pct)}
@@ -187,7 +247,14 @@ export function SwapUI({ market }: { market: string }) {
       {/* Total Row */}
       <div className="mb-6">
         <div className="flex justify-between text-xs mb-1">
-          <span className="text-zinc-400">Total:</span>
+          <span className="text-zinc-400">
+            {type === "market"
+              ? activeTab === "buy"
+                ? "Est. Cost:"
+                : "Est. Receive:"
+              : "Total:"}
+          </span>
+
           <span className="text-white">
             {calculateTotal()} {quoteAsset}
           </span>

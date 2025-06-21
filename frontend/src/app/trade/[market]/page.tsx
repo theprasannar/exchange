@@ -55,8 +55,8 @@ export default function TradePage() {
 
         {/* Open Orders */}
         <div className="bg-zinc-800/50 rounded-xl backdrop-blur-sm border border-zinc-700/50 p-4">
-          <h3 className="text-md font-medium text-blue-400 border-b-1 border-blue-400 mb-3">
-            Your Open Orders
+          <h3 className="text-sm font-medium text-blue-400 border-b-1 border-blue-400 mb-3">
+            Open Orders
           </h3>
           <OpenOrders market={market as string} />
         </div>
@@ -64,7 +64,7 @@ export default function TradePage() {
 
       {/* Footer */}
       <footer className="p-4 text-center text-zinc-500 text-xs border-t border-zinc-800">
-        <span>Trading Platform UI • {new Date().getFullYear()}</span>
+        <span>Nexus Exchange• {new Date().getFullYear()}</span>
       </footer>
     </div>
   );

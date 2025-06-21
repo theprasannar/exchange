@@ -50,17 +50,10 @@ export default function RecentTrades({ market }: { market: string }) {
                     isBuy ? "text-green-400" : "text-red-400"
                   }`}
                 >
-                  {isBuy ? (
-                    <ArrowUp className="w-3 h-3 mr-1" />
-                  ) : (
-                    <ArrowDown className="w-3 h-3 mr-1" />
-                  )}
                   {parseFloat(trade.price).toFixed(2)}
                 </div>
                 <span>{trade.quantity}</span>
-                <span className="text-zinc-500">
-                  {formatTime(trade.timestamp)}
-                </span>
+                <span className="text-zinc-500">{trade.timestamp}</span>
               </div>
             </div>
           );

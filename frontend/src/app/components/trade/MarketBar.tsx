@@ -10,7 +10,8 @@ export const MarketBar = ({ market }: { market: string }) => {
   const ticker = useAppSelector((state) => state.ticker);
   const [showMarketSelector, setShowMarketSelector] = useState(false);
 
-  const isPositive = true;
+  const change = parseFloat(ticker.change24h);
+  const isPositive = change >= 0;
   const availableMarkets = ["BTC_USDC", "ETH_USDC", "SOL_USDC", "AVAX_USDC"];
   const [baseCurrency, quoteCurrency] = market.split("_");
 
@@ -83,30 +84,30 @@ export const MarketBar = ({ market }: { market: string }) => {
                   isPositive ? "text-green-500" : "text-red-500"
                 }`}
               >
-                {isPositive ? (
+                {Number(ticker.change24h) >= 0 ? (
                   <ArrowUp className="h-3 w-3 mr-1" />
                 ) : (
                   <ArrowDown className="h-3 w-3 mr-1" />
                 )}
-                {/* {ticker.change} */}
+                {ticker.change24h}%
               </span>
             </div>
             <span className="text-xs text-zinc-400">Last Price</span>
           </div>
 
           <div className="flex flex-col">
-            <span className="font-medium font-mono">${ticker.high}</span>
+            <span className="font-medium font-mono">${ticker.high24h}</span>
             <span className="text-xs text-zinc-400">24h High</span>
           </div>
 
           <div className="flex flex-col">
-            <span className="font-medium font-mono">${ticker.low}</span>
+            <span className="font-medium font-mono">${ticker.low24h}</span>
             <span className="text-xs text-zinc-400">24h Low</span>
           </div>
 
           <div className="flex flex-col">
             <span className="font-medium font-mono">
-              {ticker.volume} {baseCurrency}
+              {ticker.volume24h} {baseCurrency}
             </span>
             <span className="text-xs text-zinc-400">24h Volume</span>
           </div>

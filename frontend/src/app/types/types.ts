@@ -46,6 +46,12 @@ export interface TickerFromEngine {
   low: string;
   volume: string;
   symbol: string;
+  createdAt?: number;
+  volume24h: string;
+  high24h: string;
+  low24h: string;
+  open24h: string;
+  change24h: string;
 }
 export interface Candle {
   market?: string;
@@ -68,4 +74,15 @@ export interface Order {
   filled: string;
   status: "PENDING" | "PARTIALLY_FILLED" | "FILLED" | "CANCELLED";
   createdAt: string; // ISO timestamp
+}
+
+export interface Balance {
+  USDC: {
+    available: string;
+    locked: string;
+  };
+  BTC: {
+    available: string;
+    locked: string;
+  };
 }

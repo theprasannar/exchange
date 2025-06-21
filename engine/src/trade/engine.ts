@@ -430,6 +430,7 @@ export class Engine {
             quantity: order.quantity.toString(),
             side: order.side,
             userId: order.userId,
+            createdAt: order.createdAt,
           }));
 
           RedisManager.getInstance().sendToApi(clientId, {
@@ -525,6 +526,11 @@ export class Engine {
                 high: "0",
                 low: "0",
                 volume: "0",
+                high24h: "0",
+                low24h: "0",
+                volume24h: "0",
+                open24h: "0",
+                change24h: 0,
               },
             });
             return;
@@ -537,6 +543,11 @@ export class Engine {
               low: tickerData.low.toString(),
               volume: tickerData.volume.toString(),
               symbol: market,
+              high24h: tickerData.high24h.toString(),
+              low24h: tickerData.low24h.toString(),
+              volume24h: tickerData.volume24h.toString(),
+              open24h: tickerData.open24h.toString(),
+              change24h: tickerData.change24h,
             },
           });
         } catch (error) {
@@ -548,6 +559,11 @@ export class Engine {
               high: "0",
               low: "0",
               volume: "0",
+              high24h: "0",
+              low24h: "0",
+              volume24h: "0",
+              open24h: "0",
+              change24h: 0,
             },
           });
         }
@@ -606,6 +622,15 @@ export class Engine {
   ): Promise<{ executedQty: bigint; fills: Fill[]; orderId: string }> {
     const orderbook = this.orderBooks.find((ob) => ob.ticker() === market);
     if (!orderbook) throw new Error(`No OrderBook found for ${market}`);
+
+    if (postOnly) {
+      const limitPrice = BigInt(rawPrice);
+      if (orderbook.wouldTakeLiquidity(side, limitPrice)) {
+        throw new Error(
+          "Failed: Post-only order would match immediately (maker-only)"
+        );
+      }
+    }
 
     const quantity = BigInt(rawQuantity);
     const price = orderType === "limit" ? BigInt(rawPrice) : 0n;
@@ -707,6 +732,8 @@ export class Engine {
         }
       }
     }
+
+    //Update the open orders for touched users for an order
     const touchedUsers = new Set<string>();
     touchedUsers.add(userId); // taker
     for (const f of fills) touchedUsers.add(f.makerUserId!);
@@ -1340,6 +1367,11 @@ export class Engine {
           h: tickerData.high.toString(),
           l: tickerData.low.toString(),
           v: tickerData.volume.toString(),
+          h24: tickerData.high24h.toString(),
+          l24: tickerData.low24h.toString(),
+          v24: tickerData.volume24h.toString(),
+          o24: tickerData.open24h.toString(),
+          ch24: tickerData.change24h,
           s: market,
           id: tickerData.updatedAt,
           e: "ticker",

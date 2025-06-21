@@ -21,6 +21,10 @@ export default function Home() {
   const { token, isLoading } = useAuth();
   const ticker = useAppSelector((state) => state.ticker);
 
+  const change = parseFloat(ticker.change24h);
+  const isPositive = change >= 0;
+  const changeClass = isPositive ? "text-green-500" : "text-red-500";
+
   useEffect(() => {
     if (!isLoading && !token) {
       router.push("/auth/signin");
@@ -74,12 +78,12 @@ export default function Home() {
           <div className="backdrop-blur-xl bg-zinc-800/40 border border-zinc-700/50 rounded-2xl p-8">
             <div className="flex items-center justify-between mb-8">
               <h2 className="text-2xl font-bold text-white">Market Overview</h2>
-              <Link href="/markets">
+              {/* <Link href="/markets">
                 <span className="text-sky-500 hover:text-sky-400 transition-colors flex items-center gap-2 cursor-pointer">
                   View All Markets
                   <ArrowUpRight className="w-4 h-4" />
                 </span>
-              </Link>
+              </Link> */}
             </div>
 
             <div className="overflow-x-auto">
@@ -112,11 +116,13 @@ export default function Home() {
                       </p>
                     </td>
                     <td className="py-4 text-right">
-                      <span className="text-emerald-500">+2.4%</span>
+                      <span className={`${changeClass}`}>
+                        {ticker.change24h ? `${ticker.change24h}%` : "--"}
+                      </span>
                     </td>
                     <td className="py-4 text-right">
                       <p className="text-white">
-                        {ticker.volume ? `$${ticker.volume}` : "--"}
+                        {ticker.volume24h ? `$${ticker.volume24h}` : "--"}
                       </p>
                     </td>
                     <td className="py-4 text-right">
