@@ -49,6 +49,19 @@ export class RedisManager {
     this.publisherClient.lPush("db_processor", JSON.stringify(message));
   }
 
+  public async xAdd(
+    stream: string,
+    json: string,
+    maxLen = 10_000_000
+  ): Promise<string> {
+    return await this.publisherClient.xAdd(
+      stream,
+      "*", // auto-ID
+      { json },
+      { TRIM: { strategy: "MAXLEN", threshold: maxLen } }
+    );
+  }
+
   public async getZRangeByScore(
     key: string,
     min: string,

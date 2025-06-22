@@ -30,6 +30,13 @@ async function processEvent(event: Event): Promise<void> {
     case "ORDER_UPDATE":
       await processOrderUpdate(event.data);
       break;
+    case "BALANCE_LOCK":
+      await processBalanceLock(event.data);
+      break;
+    case "BALANCE_UNLOCK":
+      await processBalanceUnlock(event.data);
+      break;
+
     default:
       console.warn("DB Processor: Unknown event type:", event.type);
   }
@@ -177,6 +184,69 @@ async function processOrderUpdate(data: any): Promise<void> {
 }
 
 /**
+ * Apply a TRADE_FILL event atomically.
+ * We assume users table has:
+ *   usdcBalance (BigInt)
+ *   usdcLocked  (BigInt)   // add these two columns if you haven’t
+ *   btcBalance  (BigInt)
+ *   btcLocked   (BigInt)
+ */
+async function processTradeFill(data: any): Promise<void> {
+  const buyId = data.buyUserId;
+  const sellId = data.sellUserId;
+  const qty = BigInt(data.qty);
+  const quote = BigInt(data.quote);
+  const fee = BigInt(data.fee); // simple “buyer pays fee” example
+
+  await prisma.$transaction([
+    // Buyer: unlock quote + fee, credit BTC
+    prisma.user.update({
+      where: { id: buyId },
+      data: {
+        usdcLocked: { decrement: quote + fee },
+        btcBalance: { increment: qty },
+      },
+    }),
+    // Seller: unlock BTC, credit quote
+    prisma.user.update({
+      where: { id: sellId },
+      data: {
+        btcLocked: { decrement: qty },
+        usdcBalance: { increment: quote },
+      },
+    }),
+    // You might also update an "exchange_fee" wallet here
+  ]);
+  console.log(
+    `DB Processor: TRADE_FILL buyer=${buyId} seller=${sellId} qty=${qty}`
+  );
+}
+
+async function processBalanceLock(data: any) {
+  const amt = BigInt(data.amount);
+  const col = data.asset.toLowerCase(); // "usdc" | "btc"
+  await prisma.user.update({
+    where: { id: data.userId },
+    data: {
+      [`${col}Locked`]: { increment: amt },
+      [`${col}Balance`]: { decrement: amt },
+    },
+  });
+}
+
+async function processBalanceUnlock(data: any) {
+  const amt = BigInt(data.amount);
+  const col = data.asset.toLowerCase();
+  await prisma.user.update({
+    where: { id: data.userId },
+    data: {
+      [`${col}Locked`]: { decrement: amt },
+      [`${col}Balance`]: { increment: amt },
+    },
+  });
+}
+
+/**
  * If processing repeatedly fails, push the event to a dead‑letter queue.
  */
 async function pushToDeadLetterQueue(event: Event): Promise<void> {
@@ -236,3 +306,47 @@ consumeEvents().catch((error) => {
   console.error("DB Processor: Fatal error:", error);
   process.exit(1);
 });
+
+async function consumeEventsFromStreams() {
+  const client = createClient();
+  await client.connect();
+
+  const STREAM = "events";
+  const GROUP = "ledger-writer";
+  const CONSUMER = "lw-" + Math.random().toString(36).slice(2, 7);
+
+  try {
+    await client.xGroupCreate(STREAM, GROUP, "0", { MKSTREAM: true });
+  } catch (e: any) {
+    if (!String(e?.message).includes("BUSYGROUP")) throw e; // ignore 'group exists'
+  }
+
+  console.log(`DB-Processor: stream consumer ${CONSUMER} running…`);
+  while (true) {
+    const resp = await client.xReadGroup(
+      GROUP,
+      CONSUMER,
+      { key: STREAM, id: ">" },
+      { COUNT: 100, BLOCK: 5000 }
+    );
+    if (!resp) continue;
+
+    for (const stream of resp) {
+      for (const message of stream.messages) {
+        const id = message.id;
+        const fields = message.message;
+        const event: Event = JSON.parse(fields.json as string);
+        try {
+          await processEvent(event);
+          await client.xAck(STREAM, GROUP, id);
+        } catch (err) {
+          console.error("DB-Processor: stream fail", id, err);
+          // Optional: dead-letter fallback
+        }
+      }
+    }
+  }
+}
+
+/* Kick off the coroutine (runs alongside the list consumer) */
+consumeEventsFromStreams().catch(console.error);

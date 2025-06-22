@@ -671,16 +671,15 @@ export class Engine {
         const userBalances = this.balance.get(userId);
         if (!userBalances)
           throw new Error(`No balance found for user ${userId}`);
-        const estimatedCode = this.getEstimatedBuyCostForMarket(
+        const estimatedCost = this.getEstimatedBuyCostForMarket(
           orderbook,
           quantity
         );
-        if (userBalances[quoteAsset].available < estimatedCode) {
+        if (userBalances[quoteAsset].available < estimatedCost) {
           throw new Error(`Insufficient ${quoteAsset} balance`);
         }
         // Lock only the estimated cost, not the entire available balance.
-        userBalances[quoteAsset].available -= estimatedCode;
-        userBalances[quoteAsset].locked += estimatedCode;
+        await this.emitBalanceLock(userId, quoteAsset, estimatedCost);
       } else {
         // Market sell => lock exactly the baseAsset
         this.checkAndLockFunds(
@@ -722,14 +721,13 @@ export class Engine {
         const userBalance = this.balance.get(userId);
         if (!userBalance)
           throw new Error(`No balance found for user ${userId}`);
-        if (side === "buy") {
-          const totalCost = mulDiv(price, unfilledQty, BTC_SCALE.toString());
-          userBalance[quoteAsset].available += totalCost;
-          userBalance[quoteAsset].locked -= totalCost;
-        } else {
-          userBalance[baseAsset].available += unfilledQty;
-          userBalance[baseAsset].locked -= unfilledQty;
-        }
+        const refund =
+          side === "buy"
+            ? mulDiv(price, unfilledQty, BTC_SCALE.toString()) // quote refund
+            : unfilledQty; // base refund
+
+        const asset = side === "buy" ? quoteAsset : baseAsset;
+        await this.emitBalanceUnlock(userId, asset, refund);
       }
     }
 
@@ -817,7 +815,7 @@ export class Engine {
   /**
    * Lock the user's funds in memory
    */
-  private checkAndLockFunds(
+  private async checkAndLockFunds(
     baseAsset: string,
     quoteAsset: string,
     userId: string,
@@ -834,22 +832,116 @@ export class Engine {
       if (userBalances[quoteAsset].available < totalCost) {
         throw new Error(`Insufficient ${quoteAsset} balance`);
       }
-      userBalances[quoteAsset].available -= totalCost;
-      userBalances[quoteAsset].locked += totalCost;
+      await this.emitBalanceLock(userId, quoteAsset, totalCost);
     } else {
       // side = sell
       if (userBalances[baseAsset].available < quantity) {
         throw new Error(`Insufficient ${baseAsset} balance`);
       }
-      userBalances[baseAsset].available -= quantity;
-      userBalances[baseAsset].locked += quantity;
+      await this.emitBalanceLock(userId, baseAsset, quantity);
     }
+  }
+
+  private async emitBalanceLock(userId: string, asset: string, amount: bigint) {
+    if (amount == 0n) return;
+
+    const evt: Event = {
+      id: crypto.randomUUID(),
+      type: "BALANCE_LOCK",
+      data: { userId, asset, amount: amount.toString() },
+      timestamp: Date.now(),
+    };
+
+    await EventStore.publishEvent(evt);
+
+    // 2️⃣ mutate RAM only after Redis ACK
+    const wallet = this.balance.get(userId);
+    if (!wallet) throw new Error(`Wallet missing for ${userId}`);
+
+    wallet[asset].available -= amount;
+    wallet[asset].locked += amount;
+  }
+
+  /* -------------------------------------------------------------
+   *  Publish BALANCE_UNLOCK ➜ wait for ACK ➜ mutate RAM
+   * ----------------------------------------------------------- */
+  private async emitBalanceUnlock(
+    userId: string,
+    asset: string,
+    amount: bigint
+  ): Promise<void> {
+    if (amount === 0n) return;
+
+    const evt: Event = {
+      id: crypto.randomUUID(),
+      type: "BALANCE_UNLOCK",
+      data: { userId, asset, amount: amount.toString() },
+      timestamp: Date.now(),
+    };
+
+    await EventStore.publishEvent(evt); // 1️⃣ durable write
+
+    const wallet = this.balance.get(userId);
+    if (!wallet) throw new Error(`Wallet missing for ${userId}`);
+
+    wallet[asset].locked -= amount; // 2️⃣ mutate after ACK
+    wallet[asset].available += amount;
+  }
+
+  /* ---------------------------------------------------------------
+   *  Publish TRADE_FILL  → wait for ACK → apply to RAM
+   * ------------------------------------------------------------- */
+  private async emitTradeFill(
+    buyUserId: string,
+    sellUserId: string,
+    baseAsset: string, // e.g. "BTC"
+    quoteAsset: string, // e.g. "USDC"
+    price: bigint, // match price
+    qty: bigint, // executed base qty
+    fee: bigint = 0n
+  ): Promise<void> {
+    if (qty === 0n) return;
+
+    const quote = mulDiv(price, qty, BTC_SCALE.toString()); // cost = p*q
+
+    const evt: Event = {
+      id: crypto.randomUUID(),
+      type: "TRADE_FILL",
+      data: {
+        buyUserId,
+        sellUserId,
+        baseAsset,
+        quoteAsset,
+        price: price.toString(),
+        qty: qty.toString(),
+        quote: quote.toString(),
+        fee: fee.toString(),
+      },
+      timestamp: Date.now(),
+    };
+
+    await EventStore.publishEvent(evt); // ① durable write
+
+    /* ② mutate RAM only after Redis ACK  ------------------------- */
+
+    const buyW = this.balance.get(buyUserId)!;
+    const sellW = this.balance.get(sellUserId)!;
+
+    // buyer
+    buyW[quoteAsset].locked -= quote + fee;
+    buyW[baseAsset].available += qty;
+
+    // seller
+    sellW[baseAsset].locked -= qty;
+    sellW[quoteAsset].available += quote;
+
+    // fees → exchange wallet if you have one (skipped here)
   }
 
   /**
    * Cancel an existing order and free up locked balances.
    */
-  public cancelOrder(
+  public async cancelOrder(
     orderId: string,
     market: string,
     clientId: string,
@@ -876,9 +968,7 @@ export class Engine {
       const leftoverLocked = (order.quantity - order.filled) * order.price;
       const userBalances = this.balance.get(order.userId);
       if (!userBalances) throw new Error(`User ${order.userId} not found`);
-      userBalances[quoteAsset].available += leftoverLocked;
-      userBalances[quoteAsset].locked -= leftoverLocked;
-
+      await this.emitBalanceUnlock(order.userId, quoteAsset, leftoverLocked);
       this.sendUpdatedDepthAt(price.toString(), market);
     } else {
       // side = sell
@@ -888,9 +978,7 @@ export class Engine {
       const leftoverLocked = order.quantity - order.filled;
       const userBalances = this.balance.get(order.userId);
       if (!userBalances) throw new Error(`User ${order.userId} not found`);
-      userBalances[baseAsset].available += leftoverLocked;
-      userBalances[baseAsset].locked -= leftoverLocked;
-
+      await this.emitBalanceUnlock(order.userId, baseAsset, leftoverLocked);
       this.sendUpdatedDepthAt(price.toString(), market);
     }
 
@@ -906,49 +994,6 @@ export class Engine {
     this.publishOpenOrdersSnapshot(cancelOrderbook, [order.userId]);
   }
 
-  // public publishOpenOrders(
-  //   order: Order,
-  //   userId: string,
-  //   executedQty: bigint,
-  //   fills: Fill[]
-  // ) {
-  //   RedisManager.getInstance().publishMessage(`orders@${userId}`, {
-  //     stream: `orders@${userId}`,
-  //     data: {
-  //       e: "order",
-  //       oI: order?.orderId,
-  //       s: order.side,
-  //       p: order.price,
-  //       q: order.quantity,
-  //       eq: executedQty.toString(),
-  //       t: order.createdAt,
-  //     },
-  //   });
-  //   // fills [
-  //   //   {
-  //   //     price: 50500000n,
-  //   //     quantity: 50000000n,
-  //   //     tradeId: 0,
-  //   //     makerUserId: 'user1',
-  //   //     makerOrderId: '3e92359c-7cbb-4eb1-9383-0371f57b32a5',
-  //   //     timestamp: 1748676193449
-  //   //   }
-  //   // ]
-  //   for (const fill of fills) {
-  //     RedisManager.getInstance().publishMessage(`orders@${fill?.makerUserId}`, {
-  //       stream: `orders@${fill?.makerUserId}`,
-  //       data: {
-  //         e: "order",
-  //         oI: fill?.makerOrderId,
-  //         s: order?.side == "buy" ? "buy" : "sell",
-  //         p: fill?.price,
-  //         q: fill?.quantity,
-  //         eq: executedQty?.toString(),
-  //         t: order?.createdAt,
-  //       },
-  //     });
-  //   }
-  // }
   /**
    * Push the ENTIRE open-order snapshot for every user that was touched
    * by the last match.  That guarantees consistency even after many
@@ -987,56 +1032,33 @@ export class Engine {
    * (We do not publish DB updates here; we just fix the memory.)
    */
   public updateBalance(
-    userId: string,
+    takerId: string,
     baseAsset: string,
     quoteAsset: string,
     side: "buy" | "sell",
     fills: Fill[]
   ) {
-    const takerBalances = this.balance.get(userId);
-    if (!takerBalances) return;
-
-    if (side === "buy") {
-      // Taker is the buyer
-      for (const fill of fills) {
-        const makerBalances = this.balance.get(fill.makerUserId!);
-        if (!makerBalances) continue;
-
-        // quote to maker, base to taker
-        const quoteAmount = mulDiv(
-          fill.price,
-          fill.quantity,
-          BTC_SCALE.toString()
+    for (const f of fills) {
+      if (side === "buy") {
+        // taker = buyer
+        this.emitTradeFill(
+          takerId, // buyUserId
+          f.makerUserId!, // sellUserId
+          baseAsset,
+          quoteAsset,
+          f.price,
+          f.quantity
         );
-
-        // Maker = seller
-        makerBalances[quoteAsset].available += quoteAmount;
-        makerBalances[baseAsset].available -= fill.quantity; // they'd locked base previously
-
-        // Taker = buyer
-        takerBalances[quoteAsset].locked -= quoteAmount; // we had locked quote
-        takerBalances[baseAsset].available += fill.quantity;
-      }
-    } else {
-      // Taker is the seller
-      for (const fill of fills) {
-        const makerBalances = this.balance.get(fill.makerUserId!);
-        if (!makerBalances) continue;
-
-        // Buyer locked some quote
-        const quoteAmount = mulDiv(
-          fill.price,
-          fill.quantity,
-          BTC_SCALE.toString()
+      } else {
+        // taker = seller
+        this.emitTradeFill(
+          f.makerUserId!, // buyUserId
+          takerId, // sellUserId
+          baseAsset,
+          quoteAsset,
+          f.price,
+          f.quantity
         );
-
-        // Maker = buyer
-        makerBalances[quoteAsset].locked -= quoteAmount;
-        makerBalances[baseAsset].available += fill.quantity;
-
-        // Taker = seller
-        takerBalances[quoteAsset].available += quoteAmount;
-        takerBalances[baseAsset].locked -= fill.quantity;
       }
     }
   }
@@ -1182,7 +1204,7 @@ export class Engine {
           console.error(
             `Reconciliation discrepancy for user ${user.id}: In‑memory USDC=${memBalance.USDC.available} vs DB=${dbUSDC}`
           );
-          // Optionally reissue an event or correct it
+          // Reissue an event or correct it
           const event: Event = {
             id: this.generateUniqueId(),
             type: "BALANCE_UPDATE",

@@ -1,0 +1,3 @@
+-- AlterTable
+ALTER TABLE "User" ADD COLUMN     "btcLocked" BIGINT NOT NULL DEFAULT 0,
+ADD COLUMN     "usdcLocked" BIGINT NOT NULL DEFAULT 0;
