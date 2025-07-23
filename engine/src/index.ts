@@ -1,40 +1,81 @@
-import { createClient, RedisClientType } from 'redis';
-import { Engine } from './trade/engine';
+import { createClient } from "redis";
+import { Engine } from "./trade/engine";
 
-async function main() {
-    const engine = new Engine();
-    const redisClient = createClient()
-    redisClient.connect();
-    console.log('Successfully connected')
+// --- configuration ----------------------------------------------------------
 
-    while (true) {
-        const message = await redisClient.brPop('message', 0);
+const ORDERS_STREAM = process.env.ORDERS_STREAM ?? "orders"; // stream key
+const GROUP_NAME = "engine"; // consumer‑group
+const CONSUMER_NAME = "worker-1"; // this process
 
-        if (message) {
-            try {
-                // Use object destructuring
-                const { element } = message; 
-                const parsedPayload = JSON.parse(element);
-        
-                const { clientId, message: orderMessage } = parsedPayload;
-        
-                const response = engine.process(parsedPayload);
+// --- helpers ----------------------------------------------------------------
 
-                if (response ?? false) {
-                    await redisClient.publish(clientId, JSON.stringify(response));
-                } else {
-                }
-                
-        
-        
-            } catch (error) {
-                console.error('Failed to process message:', message, error);
-            }
-        } else {
-            console.warn('No message received.');
-        }
-        
+async function waitForRedisReady(client: ReturnType<typeof createClient>) {
+  while (true) {
+    try {
+      const role = await client.sendCommand<string[]>(["ROLE"]);
+      if (Array.isArray(role) && role[0] === "master") break;
+    } catch {
+      /* ignore until Redis is ready */
     }
+    await new Promise((r) => setTimeout(r, 500));
+  }
 }
 
-main();
+// --- main -------------------------------------------------------------------
+
+async function main(): Promise<void> {
+  const engine = new Engine();
+  const redisClient = createClient();
+
+  await redisClient.connect();
+  console.log("🔌  Engine connected to Redis");
+
+  await waitForRedisReady(redisClient);
+
+  // ensure consumer‑group exists (idempotent)
+  await redisClient
+    .xGroupCreate(ORDERS_STREAM, GROUP_NAME, "0", { MKSTREAM: true })
+    .catch((e) => {
+      if (!e.message.includes("BUSYGROUP")) throw e;
+    });
+
+  console.log("🚀  Consumer‑group ready, entering main loop");
+
+  while (true) {
+    const response = await redisClient.xReadGroup(
+      GROUP_NAME,
+      CONSUMER_NAME,
+      [{ key: ORDERS_STREAM, id: ">" }],
+      { COUNT: 1, BLOCK: 0 }
+    );
+
+    if (!response) continue; // nothing to do
+
+    // xReadGroup always returns this nested shape:
+    // [ [ streamKey, [ [ entryId, { field: value, ... } ] ] ] ]
+    const [[, entries]] = response;
+    for (const [entryId, fields] of entries) {
+      try {
+        const payload = JSON.parse(fields.json);
+        const { clientId } = payload;
+
+        const result = engine.process(payload);
+
+        if (result) {
+          await redisClient.publish(clientId, JSON.stringify(result));
+        }
+
+        // acknowledge only after successful processing
+        await redisClient.xAck(ORDERS_STREAM, GROUP_NAME, entryId);
+      } catch (err) {
+        console.error("❌  Failed to handle entry", entryId, err);
+        // no xAck here → entry stays pending and will replay later
+      }
+    }
+  }
+}
+
+main().catch((err) => {
+  console.error("Engine crashed", err);
+  process.exit(1);
+});

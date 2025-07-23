@@ -52,14 +52,14 @@ export const Appbar = () => {
               </a> */}
               <a
                 onClick={() => router.push("/home")}
-                className="text-zinc-400 hover:text-white flex items-center gap-1.5 px-2 py-1 rounded-lg hover:bg-zinc-800/50 transition-all duration-200"
+                className="text-zinc-400 cursor-pointer hover:text-white flex items-center gap-1.5 px-2 py-1 rounded-lg hover:bg-zinc-800/50 transition-all duration-200"
               >
                 <LandmarkIcon size={16} />
                 <span>Markets</span>
               </a>
               <a
                 onClick={() => router.push("/me")}
-                className="text-zinc-400 hover:text-white flex items-center gap-1.5 px-2 py-1 rounded-lg hover:bg-zinc-800/50 transition-all duration-200"
+                className="text-zinc-400 cursor-pointer hover:text-white flex items-center gap-1.5 px-2 py-1 rounded-lg hover:bg-zinc-800/50 transition-all duration-200"
               >
                 <ShieldIcon size={16} />
                 <span>Wallet</span>

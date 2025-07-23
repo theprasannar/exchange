@@ -64,6 +64,7 @@ class TickerAggregator {
 
     this.history.set(market, prunded);
   }
+
   getTicker(market: string): TickerData | null | undefined {
     const base = this.tickers.get(market) || null;
     if (!base) return;
@@ -75,9 +76,12 @@ class TickerAggregator {
     let open24h = trads24h[0]?.price ?? base.last;
 
     for (const t of trads24h) {
-      volume24h += t.quantity;
-      if (t.price > high24h) high24h = t.price;
-      if (t.price < low24h) low24h = t.price;
+      const p = BigInt(t.price);
+      const qty = BigInt(t.quantity);
+
+      if (high24h === 0n || p > high24h) high24h = p;
+      if (low24h === 0n || p < low24h) low24h = p;
+      volume24h += qty;
     }
 
     const change24h =
@@ -93,6 +97,40 @@ class TickerAggregator {
       open24h,
       change24h,
     };
+  }
+
+  public getHistory(market: string) {
+    return this.history.get(market) ?? [];
+  }
+
+  private toBigInt = (v: any) => (typeof v === "string" ? BigInt(v) : v);
+
+  public hyderateTicker(
+    market: string,
+    snapshot: TickerData,
+    history: TradeEntry[]
+  ) {
+    if (!snapshot) return;
+    const normSnap: TickerData = {
+      ...snapshot,
+      high: this.toBigInt(snapshot.high),
+      low: this.toBigInt(snapshot.low),
+      last: this.toBigInt(snapshot.last),
+      volume: this.toBigInt(snapshot.volume),
+      volume24h: this.toBigInt(snapshot.volume24h),
+      high24h: this.toBigInt(snapshot.high24h),
+      low24h: this.toBigInt(snapshot.low24h),
+      open24h: this.toBigInt(snapshot.open24h),
+    };
+
+    const normHist = history.map((t) => ({
+      ...t,
+      price: this.toBigInt(t.price),
+      quantity: this.toBigInt(t.quantity),
+    }));
+
+    this.tickers.set(market, normSnap);
+    this.history.set(market, normHist);
   }
 }
 

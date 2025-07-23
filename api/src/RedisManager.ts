@@ -1,107 +1,89 @@
 import { createClient, RedisClientType } from "redis";
 import { MessageToEngine } from "./types/messageToEngineTypes";
 
+const ORDERS_STREAM = process.env.ORDERS_STREAM ?? "orders";
+
 export class RedisManager {
   private client: RedisClientType;
   private publisher: RedisClientType;
   private static instance: RedisManager;
 
-  public constructor() {
+  private constructor() {
     this.client = createClient();
     this.publisher = createClient();
 
-    this.client.on("error", (error) =>
-      console.error("Redis Subscriber error", error)
-    );
-    this.publisher.on("error", (error) =>
-      console.error("Redis Publisher error", error)
+    this.client.on("error", (e) => console.error("Redis subscriber error:", e));
+    this.publisher.on("error", (e) =>
+      console.error("Redis publisher error:", e)
     );
 
-    Promise.all([this.client.connect(), this.publisher.connect()]).catch(
-      (err) => console.error("Failed to connect Redis clients:", err)
+    Promise.all([this.client.connect(), this.publisher.connect()]).catch((e) =>
+      console.error("Failed to connect Redis clients:", e)
     );
   }
 
   public static getInstance(): RedisManager {
-    //If there is not instance of redis create one
-    if (!this.instance) {
-      this.instance = new RedisManager();
-    }
+    if (!this.instance) this.instance = new RedisManager();
     return this.instance;
   }
 
-  public sendAndAwait(message: MessageToEngine, timeOutMS = 5000) {
+  /** Send a request to the engine and wait for a Pub/Sub reply */
+  public sendAndAwait(
+    message: MessageToEngine,
+    timeoutMs = 5000
+  ): Promise<any> {
     return new Promise((resolve, reject) => {
-      let clientId = this.generateRandomClientId();
+      const clientId = this.generateRandomClientId();
 
-      // Development mode: Disable timeout if timeOutMS is set to 0
       const timer =
-        timeOutMS > 0
+        timeoutMs > 0
           ? setTimeout(() => {
-              this.client.unsubscribe(clientId);
+              this.client.unsubscribe(clientId).catch(() => {});
               reject(
-                new Error(
-                  "Timed out waiting for response on channel " + clientId
-                )
+                new Error("Timed out waiting for response on " + clientId)
               );
-            }, timeOutMS)
+            }, timeoutMs)
           : null;
+
+      // --- subscribe for the one‑off reply -------------------------------
       this.client
-        .subscribe(clientId, async (message) => {
-          console.log("Received message in subscribe callback:", message);
-          let parsedMessage: any;
+        .subscribe(clientId, async (raw) => {
+          let parsed: any;
           try {
-            parsedMessage = JSON.parse(message);
-            console.log("Parsed Message:", parsedMessage);
-          } catch (error) {
-            console.error(`Error parsing message from ${clientId}:`, message);
+            parsed = JSON.parse(raw);
+          } catch {
+            console.error(`Invalid JSON on channel ${clientId}:`, raw);
             return;
           }
 
-          // Only process the message if it contains the expected properties
-          if (!parsedMessage || !("payload" in parsedMessage)) {
-            console.log("Ignoring invalid message:", parsedMessage);
-            return;
-          }
-
+          if (!parsed || !("payload" in parsed)) return; // ignore noise
           if (timer) clearTimeout(timer);
 
-          try {
-            await this.client.unsubscribe(clientId);
-            console.log(`Unsubscribed from ${clientId}`);
-          } catch (error) {
-            console.error(`Error unsubscribing from ${clientId}:`, error);
-          }
-
-          resolve(parsedMessage);
+          await this.client.unsubscribe(clientId).catch(() => {});
+          resolve(parsed);
         })
-        .catch((error) => {
+        .catch((e) => {
           if (timer) clearTimeout(timer);
-          console.error(`Failed to subscribe to ${clientId}:`, error);
-          reject(error);
+          reject(e);
         });
 
+      // --- enqueue request to the durable stream -------------------------
       this.publisher
-        .lPush(
-          "message",
-          JSON.stringify({
-            clientId: clientId,
-            message: message,
-          })
-        )
-        .catch((publishErr) => {
+        .xAdd(ORDERS_STREAM, "*", {
+          json: JSON.stringify({ clientId, message }),
+        } as Record<string, string>)
+        .catch((e) => {
           if (timer) clearTimeout(timer);
-          console.error("Failed to enqueue request message:", publishErr);
           this.client.unsubscribe(clientId).catch(() => {});
-          reject(publishErr);
+          reject(e);
         });
     });
   }
 
-  private generateRandomClientId() {
+  private generateRandomClientId(): string {
     return (
-      Math.random().toString(36).substring(0, 12) +
-      Math.random().toString(36).substring(0, 12)
+      Math.random().toString(36).substring(2, 14) +
+      Math.random().toString(36).substring(2, 14)
     );
   }
 

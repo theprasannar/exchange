@@ -1,7 +1,7 @@
 import { RedisManager } from "../redisManager";
 
 export interface Event {
-  id: string;
+  id?: string;
   type: string; // Event type (e.g., "ORDER_CREATE", "BALANCE_UPDATE", etc.)
   data: any;
   timestamp: number;
@@ -13,26 +13,28 @@ export interface Event {
  * - Encapsulates publishing events to a durable message queue.
  */
 
-const STREAM_KEY = "events";
-const MAX_LEN = 10_000_000;
+const SIDEFX = new Set(["TRADE_EXECUTED", "BALANCE_MISMATCH", "TICKER_UPDATE"]);
 
 export class EventStore {
   static async publishEvent(event: Event): Promise<string> {
     try {
-      const json = JSON.stringify(event);
-      const redis = RedisManager.getInstance();
+      /* 1️⃣  decide which stream to write to */
+      const streamName = SIDEFX.has(event.type) ? "sidefx" : "events";
 
-      // 1) legacy list write
-      await redis.pushEvent("event_store", json);
+      /* 2️⃣  add the JSON blob to the stream */
+      const redisId = await RedisManager.getInstance().xAdd(
+        streamName,
+        "*",
+        JSON.stringify(event)
+      );
 
-      // 2) stream write
-      const id = await redis.xAdd(STREAM_KEY, json, MAX_LEN);
+      event.id = `${streamName}:${redisId}`;
 
       console.log(
-        `EventStore: published ${event.type} ${event.id} ` +
-          `(list + stream id ${id})`
+        `EventStore: published ${event.type} ${event.id} (stream ${streamName})`
       );
-      return id; // ← always returns on success
+
+      return event.id;
     } catch (error) {
       console.error("EventStore: Failed to publish event", event.id, error);
       throw error;

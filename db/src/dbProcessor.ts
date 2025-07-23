@@ -1,171 +1,189 @@
-import prisma from "./lib/prisma";
 import { createClient } from "redis";
+import { Prisma, PrismaClient } from "@prisma/client";
 import { sleep } from "./utils";
 
+const prisma = new PrismaClient();
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
 export interface Event {
-  id: string;
-  type: string; // Event type (e.g., "ORDER_CREATE", "BALANCE_UPDATE", etc.)
-  data: any;
-  timestamp: number;
+  id: string; // stream entry ID (1690…‑0)
+  type: string; // ORDER_CREATE | TRADE_EXECUTED | …
+  data: any; // payload from the engine
+  timestamp: number; // millis
   retryCount?: number;
 }
 
-/**
- * Process a single event based on its type.
- */
-async function processEvent(event: Event): Promise<void> {
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function isUnique(e: unknown): boolean {
+  return (
+    e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002"
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Per‑event transaction wrapper
+// ---------------------------------------------------------------------------
+
+async function safeProcess(event: Event): Promise<void> {
+  await prisma.$transaction(
+    async (tx) => {
+      await processEventWithTx(event, tx);
+
+      // mark processed (idempotent safeguard)
+      await tx.processedEvent.upsert({
+        where: { id: event.id },
+        update: {},
+        create: { id: event.id },
+      });
+    },
+    { isolationLevel: "Serializable" }
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Dispatcher
+// ---------------------------------------------------------------------------
+
+async function processEventWithTx(
+  event: Event,
+  tx: Prisma.TransactionClient
+): Promise<void> {
   switch (event.type) {
     case "ORDER_CREATE":
-      await processOrderCreate(event.data);
+      await processOrderCreate(event.data, tx);
       break;
-    case "BALANCE_UPDATE":
-      await processBalanceUpdate(event.data);
+    case "DEPOSIT":
+      await processDeposit(event.data, tx);
       break;
     case "TRADE_EXECUTED":
-      await processTradeExecuted(event.data);
+      await processTradeExecuted(event.data, tx);
       break;
-    case "ORDERBOOK_SNAPSHOT":
-      await processOrderbookSnapshot(event.data);
+    case "TRADE_FILL":
+      await processTradeFill(event.data, tx);
       break;
     case "ORDER_UPDATE":
-      await processOrderUpdate(event.data);
+      await processOrderUpdate(event.data, tx);
+      break;
+    case "ORDERBOOK_SNAPSHOT":
+      // snapshots are ignored by DB writer
       break;
     case "BALANCE_LOCK":
-      await processBalanceLock(event.data);
+      await processBalanceLock(event.data, tx);
       break;
     case "BALANCE_UNLOCK":
-      await processBalanceUnlock(event.data);
+      await processBalanceUnlock(event.data, tx);
       break;
-
+    case "BALANCE_MISMATCH":
+      await tx.balanceMismatch.create({
+        data: {
+          eventId: event.id,
+          userId: event.data.userId,
+          asset: event.data.asset,
+          ledgerAvail: BigInt(event.data.ledgerAvail),
+          walletAvail: BigInt(event.data.walletAvail),
+          diffAvail: BigInt(event.data.diffAvail),
+          ledgerLocked: BigInt(event.data.ledgerLocked),
+          walletLocked: BigInt(event.data.walletLocked),
+          diffLocked: BigInt(event.data.diffLocked),
+        },
+      });
+      break;
     default:
-      console.warn("DB Processor: Unknown event type:", event.type);
+      console.warn("DB‑Processor: Unknown event type", event.type);
   }
 }
 
-async function processOrderCreate(data: any): Promise<void> {
+// ---------------------------------------------------------------------------
+// Handlers (all use the scoped `tx`)
+// ---------------------------------------------------------------------------
+
+async function processOrderCreate(
+  d: any,
+  tx: Prisma.TransactionClient
+): Promise<void> {
   try {
-    await prisma.order.create({
+    await tx.order.create({
       data: {
-        id: data.orderId,
-        userId: data.userId,
-        market: data.market,
-        side: data.side,
-        price: BigInt(data.price),
-        quantity: BigInt(data.quantity),
+        eventId: d.eventId ?? d.id, // UNIQUE
+        id: d.orderId,
+        userId: d.userId,
+        market: d.market,
+        side: d.side,
+        price: BigInt(d.price),
+        quantity: BigInt(d.quantity),
         filled: 0n,
         status: "PENDING",
       },
     });
-    console.log(`DB Processor: Order created ${data.orderId}`);
-  } catch (error) {
-    throw new Error(
-      `DB Processor: Failed to create order ${data.orderId}: ${error}`
-    );
+    console.log("DB‑Processor: order created", d.orderId);
+  } catch (e) {
+    if (isUnique(e)) return; // idempotent replay
+    throw e;
   }
 }
 
-// dbProcessor.ts (or wherever you have your DB processing logic)
-
-async function processBalanceUpdate(data: any): Promise<void> {
-  console.log("Process");
-  try {
-    // data has { userId, asset, available, locked? }
-    // For demonstration, let's handle USDC and BTC.
-    if (data.asset === "USDC") {
-      await prisma.user.update({
-        where: { id: data.userId },
-        data: { usdcBalance: BigInt(data.available) },
-      });
-    } else if (data.asset === "BTC") {
-      await prisma.user.update({
-        where: { id: data.userId },
-        data: { btcBalance: BigInt(data.available) },
-      });
-    } else {
-      // If your schema allows more columns or a dynamic approach:
-      console.warn(
-        `DB Processor: Balance update for unknown asset ${data.asset}. Skipping.`
-      );
-      // Alternatively, handle it if your schema has a flexible approach or extra columns
-    }
-
-    console.log(
-      `DB Processor: Balance updated for user=${data.userId} asset=${data.asset}`
-    );
-  } catch (error) {
-    throw new Error(
-      `DB Processor: Failed to update balance for user ${data.userId}, asset ${data.asset}: ${error}`
-    );
+async function processDeposit(
+  d: any,
+  tx: Prisma.TransactionClient
+): Promise<void> {
+  if (d.asset !== "USDC") {
+    console.warn("DB‑Processor: unsupported asset", d.asset);
+    return;
   }
-}
-
-async function processTradeExecuted(data: any): Promise<void> {
-  try {
-    await prisma.trade.create({
-      data: {
-        tradeId: Number(data.id),
-        market: data.market,
-        price: BigInt(data.price),
-        quantity: BigInt(data.quantity),
-        quoteQuantity: BigInt(data.quoteQuantity),
-        isBuyerMaker: data.isBuyerMaker,
-        timestamp: new Date(data.timestamp),
-        makerOrderId: data.makerOrderId || null,
-        takerOrderId: data.takerOrderId || null,
-        makerUserId: data.makerUserId || null,
-        takerUserId: data.takerUserId || null,
-      },
-    });
-    console.log(`DB Processor: Trade recorded ${data.id}`);
-  } catch (error) {
-    throw new Error(
-      `DB Processor: Failed to record trade ${data.id}: ${error}`
-    );
-  }
-}
-
-/**
- * Process an orderbook snapshot event:
- * - Creates a new record in the database for historical snapshots.
- */
-export async function processOrderbookSnapshot(data: any): Promise<void> {
-  try {
-    // Create a new snapshot record.
-    await prisma.orderbookSnapshot.upsert({
-      where: { market: data.market },
-      update: { snapshot: data.snapshot },
-      create: {
-        market: data.market,
-        snapshot: data.snapshot,
-      },
-    });
-
-    console.log(
-      `DB Processor: Orderbook snapshot persisted for market ${data.market}`
-    );
-  } catch (error) {
-    throw new Error(
-      `DB Processor: Failed to process orderbook snapshot for market ${data.market}: ${error}`
-    );
-  }
-}
-
-async function processOrderUpdate(data: any): Promise<void> {
-  const existingOrder = await prisma.order.findUnique({
-    where: { id: data.orderId },
+  await tx.user.update({
+    where: { id: d.userId },
+    data: { usdcBalance: { increment: BigInt(d.amount) } },
   });
-  if (!existingOrder) {
-    console.warn(`DB Processor: Order ${data.orderId} not found`);
+  console.log("DB‑Processor: deposit", d.userId, d.amount);
+}
+
+async function processTradeExecuted(
+  d: any,
+  tx: Prisma.TransactionClient
+): Promise<void> {
+  try {
+    await tx.trade.create({
+      data: {
+        eventId: d.eventId ?? d.id, // UNIQUE
+        tradeId: Number(d.id),
+        market: d.market,
+        price: BigInt(d.price),
+        quantity: BigInt(d.quantity),
+        quoteQuantity: BigInt(d.quoteQuantity),
+        isBuyerMaker: d.isBuyerMaker,
+        timestamp: new Date(d.timestamp),
+        makerOrderId: d.makerOrderId ?? null,
+        takerOrderId: d.takerOrderId ?? null,
+        makerUserId: d.makerUserId ?? null,
+        takerUserId: d.takerUserId ?? null,
+      },
+    });
+    console.log("DB‑Processor: trade exec", d.id);
+  } catch (e) {
+    if (isUnique(e)) return;
+    throw e;
+  }
+}
+
+async function processOrderUpdate(
+  d: any,
+  tx: Prisma.TransactionClient
+): Promise<void> {
+  const existing = await tx.order.findUnique({ where: { id: d.orderId } });
+  if (!existing) {
+    console.warn("DB‑Processor: order not found", d.orderId);
     return;
   }
 
-  // Normalise types
-  const executed = BigInt(data.executedQty); // ← bigint
-  const quantity = data.quantity
-    ? BigInt(data.quantity) // present for the taker update
-    : existingOrder.quantity; // fall back for maker-side Δ updates
+  const executed = BigInt(d.executedQty);
+  const quantity = d.quantity ? BigInt(d.quantity) : existing.quantity;
 
-  // Decide the new status
   const status =
     executed === 0n
       ? "PENDING"
@@ -173,60 +191,46 @@ async function processOrderUpdate(data: any): Promise<void> {
       ? "FILLED"
       : "PARTIALLY_FILLED";
 
-  await prisma.order.update({
-    where: { id: data.orderId },
-    data: {
-      filled: executed, // write the bigint
-      status,
-    },
+  await tx.order.update({
+    where: { id: d.orderId },
+    data: { filled: executed, status },
   });
-  console.log(`DB Processor: Order updated ${data.orderId}`);
+  console.log("DB‑Processor: order updated", d.orderId);
 }
 
-/**
- * Apply a TRADE_FILL event atomically.
- * We assume users table has:
- *   usdcBalance (BigInt)
- *   usdcLocked  (BigInt)   // add these two columns if you haven’t
- *   btcBalance  (BigInt)
- *   btcLocked   (BigInt)
- */
-async function processTradeFill(data: any): Promise<void> {
-  const buyId = data.buyUserId;
-  const sellId = data.sellUserId;
-  const qty = BigInt(data.qty);
-  const quote = BigInt(data.quote);
-  const fee = BigInt(data.fee); // simple “buyer pays fee” example
+async function processTradeFill(
+  d: any,
+  tx: Prisma.TransactionClient
+): Promise<void> {
+  const buyId = d.buyUserId;
+  const sellId = d.sellUserId;
+  const qty = BigInt(d.qty);
+  const quote = BigInt(d.quote);
 
-  await prisma.$transaction([
-    // Buyer: unlock quote + fee, credit BTC
-    prisma.user.update({
+  await Promise.all([
+    tx.user.update({
       where: { id: buyId },
       data: {
-        usdcLocked: { decrement: quote + fee },
+        usdcLocked: { decrement: quote },
         btcBalance: { increment: qty },
       },
     }),
-    // Seller: unlock BTC, credit quote
-    prisma.user.update({
+    tx.user.update({
       where: { id: sellId },
       data: {
         btcLocked: { decrement: qty },
         usdcBalance: { increment: quote },
       },
     }),
-    // You might also update an "exchange_fee" wallet here
   ]);
-  console.log(
-    `DB Processor: TRADE_FILL buyer=${buyId} seller=${sellId} qty=${qty}`
-  );
+  console.log("DB‑Processor: TRADE_FILL", buyId, sellId, qty.toString());
 }
 
-async function processBalanceLock(data: any) {
-  const amt = BigInt(data.amount);
-  const col = data.asset.toLowerCase(); // "usdc" | "btc"
-  await prisma.user.update({
-    where: { id: data.userId },
+async function processBalanceLock(d: any, tx: Prisma.TransactionClient) {
+  const amt = BigInt(d.amount);
+  const col = d.asset.toLowerCase();
+  await tx.user.update({
+    where: { id: d.userId },
     data: {
       [`${col}Locked`]: { increment: amt },
       [`${col}Balance`]: { decrement: amt },
@@ -234,11 +238,11 @@ async function processBalanceLock(data: any) {
   });
 }
 
-async function processBalanceUnlock(data: any) {
-  const amt = BigInt(data.amount);
-  const col = data.asset.toLowerCase();
-  await prisma.user.update({
-    where: { id: data.userId },
+async function processBalanceUnlock(d: any, tx: Prisma.TransactionClient) {
+  const amt = BigInt(d.amount);
+  const col = d.asset.toLowerCase();
+  await tx.user.update({
+    where: { id: d.userId },
     data: {
       [`${col}Locked`]: { decrement: amt },
       [`${col}Balance`]: { increment: amt },
@@ -246,107 +250,66 @@ async function processBalanceUnlock(data: any) {
   });
 }
 
-/**
- * If processing repeatedly fails, push the event to a dead‑letter queue.
- */
+// ---------------------------------------------------------------------------
+// Dead‑letter helper
+// ---------------------------------------------------------------------------
+
 async function pushToDeadLetterQueue(event: Event): Promise<void> {
-  const redisClient = createClient();
-  await redisClient.connect();
-  await redisClient.lPush("dead_letter_queue", JSON.stringify(event));
-  await redisClient.disconnect();
-  console.error(`DB Processor: Event ${event.id} pushed to dead-letter queue`);
+  const r = createClient();
+  await r.connect();
+  await r.lPush("dead_letter_queue", JSON.stringify(event));
+  await r.disconnect();
+  console.error("DB‑Processor: event sent to DLQ", event.id);
 }
 
-/**
- * Continuously consumes events from the event store with retries.
- */
-async function consumeEvents() {
-  const redisClient = createClient();
-  await redisClient.connect();
-  console.log("DB Processor: Connected to Redis for event consumption.");
-  const maxRetries = 5;
+// ---------------------------------------------------------------------------
+// Stream consumer (events + sidefx)
+// ---------------------------------------------------------------------------
 
-  while (true) {
-    try {
-      // Blocking pop from the "event_store" list
-      const result = await redisClient.brPop("event_store", 0);
-      console.log(" consumeEvents ~ result:", result);
-      if (result) {
-        const message = result.element;
-        const event: Event = JSON.parse(message);
-        let retryCount = event.retryCount || 0;
-        let processed = false;
-
-        while (!processed && retryCount < maxRetries) {
-          try {
-            await processEvent(event);
-            processed = true;
-          } catch (error) {
-            retryCount++;
-            console.error(
-              `DB Processor: Error processing event ${event.id} (attempt ${retryCount}):`,
-              error
-            );
-            event.retryCount = retryCount;
-            await sleep(1000 * retryCount); // exponential backoff
-          }
-        }
-        if (!processed) {
-          await pushToDeadLetterQueue(event);
-        }
-      }
-    } catch (error) {
-      console.error("DB Processor: Error consuming events:", error);
-      await sleep(1000);
-    }
-  }
-}
-
-consumeEvents().catch((error) => {
-  console.error("DB Processor: Fatal error:", error);
-  process.exit(1);
-});
-
-async function consumeEventsFromStreams() {
+async function consumeStreams(): Promise<void> {
   const client = createClient();
   await client.connect();
 
-  const STREAM = "events";
   const GROUP = "ledger-writer";
   const CONSUMER = "lw-" + Math.random().toString(36).slice(2, 7);
+  const STREAMS = ["events", "sidefx"];
 
-  try {
-    await client.xGroupCreate(STREAM, GROUP, "0", { MKSTREAM: true });
-  } catch (e: any) {
-    if (!String(e?.message).includes("BUSYGROUP")) throw e; // ignore 'group exists'
+  for (const s of STREAMS) {
+    try {
+      await client.xGroupCreate(s, GROUP, "0", { MKSTREAM: true });
+    } catch (e: any) {
+      if (!e.message.includes("BUSYGROUP")) throw e;
+    }
   }
 
-  console.log(`DB-Processor: stream consumer ${CONSUMER} running…`);
+  console.log(`DB‑Processor ${CONSUMER} listening…`);
+
   while (true) {
-    const resp = await client.xReadGroup(
-      GROUP,
-      CONSUMER,
-      { key: STREAM, id: ">" },
-      { COUNT: 100, BLOCK: 5000 }
-    );
+    const pairs = STREAMS.map((k) => ({ key: k, id: ">" }));
+    const resp = await client.xReadGroup(GROUP, CONSUMER, pairs, {
+      COUNT: 100,
+      BLOCK: 5000,
+    });
     if (!resp) continue;
 
     for (const stream of resp) {
-      for (const message of stream.messages) {
-        const id = message.id;
-        const fields = message.message;
-        const event: Event = JSON.parse(fields.json as string);
+      for (const msg of stream.messages) {
         try {
-          await processEvent(event);
-          await client.xAck(STREAM, GROUP, id);
+          const evt: Event = JSON.parse(msg.message.json as string);
+          evt.id ||= msg.id;
+          await safeProcess(evt);
+          await client.xAck(stream.name, GROUP, msg.id);
         } catch (err) {
-          console.error("DB-Processor: stream fail", id, err);
-          // Optional: dead-letter fallback
+          console.error("DB‑Processor fail", stream.name, msg.id, err);
+          // after 5 retries push to DLQ (pseudo‑code)
+          // await pushToDeadLetterQueue(evt);
         }
       }
     }
   }
 }
 
-/* Kick off the coroutine (runs alongside the list consumer) */
-consumeEventsFromStreams().catch(console.error);
+consumeStreams().catch((e) => {
+  console.error("DB‑Processor crashed", e);
+  process.exit(1);
+});

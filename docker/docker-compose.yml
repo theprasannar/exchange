@@ -1,21 +1,51 @@
+version: "3.8"
+
 services:
+  # ───────────────────────── PostgreSQL / Timescale ─────────────────────────
   timescaledb:
     image: timescale/timescaledb:latest-pg12
     container_name: timescaledb
-    ports:
-      - "5432:5432"
+    restart: unless-stopped
     environment:
       POSTGRES_DB: exchange_db
       POSTGRES_USER: exchange_user
       POSTGRES_PASSWORD: exchange_password
+    ports:
+      - "5432:5432"
     volumes:
       - timescale-data:/var/lib/postgresql/data
 
+  # ───────────────────────────── Redis primary ──────────────────────────────
   redis:
-    image: redis:latest
+    image: redis:7-alpine
     container_name: redis
+    command: ["redis-server", "/etc/redis/redis.conf"] # ← use custom cfg
     ports:
       - "6379:6379"
+    volumes:
+      - ./docker/redis.conf:/etc/redis/redis.conf # AOF settings
+      - redis-data:/data # persisted rdb/aof
+    healthcheck:
+      test: ["CMD", "redis-cli", "PING"]
+      interval: 5s
+      retries: 5
+
+  # ─────────────────────────── Redis replica (optional) ─────────────────────
+  redis-replica:
+    image: redis:7-alpine
+    container_name: redis-replica
+    command: ["redis-server", "--replicaof", "redis", "6379"]
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - redis-data-replica:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "PING"]
+      interval: 5s
+      retries: 5
 
 volumes:
   timescale-data:
+  redis-data:
+  redis-data-replica:

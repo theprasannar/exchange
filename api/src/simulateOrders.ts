@@ -71,7 +71,10 @@ const API_BASE_URL = "http://localhost:4000/api/v1/orders";
 const MARKET = "BTC_USDC";
 
 // 3) Generate user IDs from user20 ... user70
-const USER_IDS: string[] = Array.from({ length: 51 }, (_, i) => `user${i + 20}`);
+const USER_IDS: string[] = Array.from(
+  { length: 51 },
+  (_, i) => `user${i + 20}`
+);
 
 // Helper to get random int
 function randomInt(min: number, max: number): number {
@@ -93,7 +96,8 @@ function generateRandomOrder() {
   // quantity between 0.01 and 0.11 BTC
   const quantity = (Math.random() * 0.1 + 0.01).toFixed(8);
 
-  const orderType: "limit" | "market" = Math.random() < 0.5 ? "limit" : "market";
+  const orderType: "limit" | "market" =
+    Math.random() < 0.5 ? "limit" : "market";
 
   return {
     market: MARKET,
@@ -101,7 +105,7 @@ function generateRandomOrder() {
     quantity: quantity.toString(),
     side: randomSide(),
     userId: USER_IDS[randomInt(0, USER_IDS.length - 1)],
-    orderType
+    orderType,
   };
 }
 
@@ -123,7 +127,7 @@ function scheduleRandomOrder() {
   const orderData = generateRandomOrder();
   sendOrder(orderData);
 
-  const delay = randomInt(1000,2000); // 3–10 seconds
+  const delay = randomInt(500, 1000); // 3–10 seconds
   console.log(`[${new Date().toISOString()}] Next order in ${delay}ms`);
   setTimeout(scheduleRandomOrder, delay);
 }

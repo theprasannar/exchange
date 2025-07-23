@@ -29,6 +29,11 @@ export class RedisManager {
     return RedisManager.instance;
   }
 
+  private static toJson(value: any): string {
+    return JSON.stringify(value, (_, v) =>
+      typeof v === "bigint" ? v.toString() : v
+    );
+  }
   /**
    * ============ PUBLISH METHODS ============
    * You can do any typical Redis operation on the "publisherClient".
@@ -49,31 +54,87 @@ export class RedisManager {
     this.publisherClient.lPush("db_processor", JSON.stringify(message));
   }
 
+  public async xAck(
+    stream: string,
+    group: string,
+    id: string
+  ): Promise<number> {
+    // delegate to the underlying Redis client
+    return this.publisherClient.xAck(stream, group, id);
+  }
+  // redisManager.ts
   public async xAdd(
     stream: string,
+    id: string, // "*" or explicit id
     json: string,
     maxLen = 10_000_000
-  ): Promise<string> {
-    return await this.publisherClient.xAdd(
+  ) {
+    return this.publisherClient.xAdd(
       stream,
-      "*", // auto-ID
+      id,
       { json },
       { TRIM: { strategy: "MAXLEN", threshold: maxLen } }
     );
   }
 
-  public async getZRangeByScore(
-    key: string,
-    min: string,
-    max: string
-  ): Promise<string[]> {
-    return await this.publisherClient.zRangeByScore(key, min, max);
+  public async set(key: string, value: any) {
+    await this.publisherClient.set(key, RedisManager.toJson(value));
   }
 
-  public async pushEvent(key: string, value: string): Promise<void> {
-    await this.publisherClient.lPush(key, value);
+  public async get(key: string) {
+    return await this.publisherClient.get(key);
   }
 
+  // inside RedisManager
+  /**
+   * Create a consumer group on a stream.
+   */
+  public async xGroupCreate(params: {
+    key: string; // stream name
+    group: string; // consumer-group name
+    id: string; // "0", "$", etc.
+    MKSTREAM?: boolean; // auto-create stream if missing
+  }): Promise<string> {
+    const { key, group, id, MKSTREAM } = params;
+    return this.publisherClient.xGroupCreate(
+      key,
+      group,
+      id,
+      MKSTREAM ? { MKSTREAM } : undefined
+    );
+  }
+
+  /**
+   * Read from a stream via XREADGROUP.
+   */
+  public async xReadGroup(
+    group: string,
+    consumer: string,
+    stream: { key: string; id: string },
+    opts: { COUNT?: number; BLOCK?: number }
+  ): Promise<Array<{
+    name: string;
+    messages: Array<{ id: string; message: Record<string, string> }>;
+  }> | null> {
+    // ← allow the “no messages” case
+    // Redis v4 expects an array of streams: [{ key, id }]
+    return this.publisherClient.xReadGroup(
+      group,
+      consumer,
+      [stream], // wrap in array
+      opts
+    );
+  }
+
+  public async xRead(
+    streams: Array<{ key: string; id: string }>,
+    opts: { COUNT?: number; BLOCK?: number }
+  ): Promise<Array<{
+    name: string;
+    messages: Array<{ id: string; message: Record<string, string> }>;
+  }> | null> {
+    return await this.publisherClient.xRead(streams, opts);
+  }
   /**
    * ============ SUBSCRIBE METHOD ============
    * This puts the "subscriberClient" into subscriber mode for the given channel.

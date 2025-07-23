@@ -356,6 +356,40 @@ export class OrderBook {
     return [...asks, ...bids];
   }
 
+  public insertWithoutMatching(order: Order): void {
+    if (order.side === "buy") this.bids.push(order);
+    else this.asks.push(order);
+  }
+  /** ------------------------------------------------------------------
+   *  Utility helpers – locating & deleting orders in the book
+   *  -----------------------------------------------------------------*/
+
+  /** Return a reference to the order (if it exists) on either side. */
+  public findOrder(orderId: string): Order | undefined {
+    return (
+      this.bids.find((o) => o.orderId === orderId) ||
+      this.asks.find((o) => o.orderId === orderId)
+    );
+  }
+
+  /**
+   * Remove an order completely from the book.
+   * Returns true if something was removed, false if not found.
+   */
+  public removeOrder(orderId: string): boolean {
+    const bidIdx = this.bids.findIndex((o) => o.orderId === orderId);
+    if (bidIdx !== -1) {
+      this.bids.splice(bidIdx, 1);
+      return true;
+    }
+    const askIdx = this.asks.findIndex((o) => o.orderId === orderId);
+    if (askIdx !== -1) {
+      this.asks.splice(askIdx, 1);
+      return true;
+    }
+    return false; // not found
+  }
+
   // orderBook.ts  – add near the bottom of the class
   public wouldTakeLiquidity(side: "buy" | "sell", price: bigint): boolean {
     if (side === "buy") {

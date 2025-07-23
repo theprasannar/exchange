@@ -1,3 +1,4 @@
+//@ts-nocheck
 import { Fill, Order, OrderBook } from "./orderBook";
 import { RedisManager } from "../redisManager";
 import { ORDER_CREATE, ORDER_UPDATE, TRADE_ADDED } from "../types";
@@ -20,6 +21,11 @@ import { EventStore, Event } from "./EventStore";
 
 // Just to avoid TS errors about crypto:
 import crypto from "crypto"; // Make sure you import or require 'crypto' if you're in Node
+
+const ALERT_THRESHOLD: Record<string, bigint> = {
+  USDC: 1_000_000_000n, // $1 000 (6-decimals USDC)
+  BTC: 100_000n, // 0.001 BTC (8-decimals)
+};
 
 export const BASE_CURRENCY = "USDC";
 
@@ -60,11 +66,11 @@ interface OrderbookSnapshot {
 export class Engine {
   private orderBooks: OrderBook[] = [];
   private balance: Map<string, UserBalance> = new Map();
-  private processedEventIds: Set<string> = new Set(); // For idempotency
+  // private processedEventIds: Set<string> = new Set(); // For idempotency
 
   constructor() {
     this.initialize();
-    // this.setupPeriodicTasks();
+    this.setupPeriodicTasks();
   }
 
   /**
@@ -72,27 +78,45 @@ export class Engine {
    * and reconcile balances every N seconds/minutes. Adjust the interval
    * to suit your production needs (e.g., once every 5 minutes).
    */
+  // engine/Engine.ts
   private setupPeriodicTasks() {
-    const INTERVAL_MS = 1000 * 10; // 5 minutes example
+    const SNAPSHOT_MS = Number(process.env.SNAPSHOT_MS ?? 5000); // default 5 s
+    const RECONCILE_MS = Number(process.env.RECONCILE_MS ?? 60000); // default 60 s
+
+    let lastRecon = 0; // timestamp of last reconcile
+    let reconFails = 0; // consecutive failures
 
     setInterval(async () => {
       try {
-        // For each supported market, snapshot the orderbook
-        // const supportedMarkets = this.getSupportedMarkers();
-        // for (const m of supportedMarkets) {
-        //   const marketName = `${m.base}_${m.quote}`;
-        //   await this.snapshotOrderbook(marketName);
-        // }
+        /* 1️⃣ Snapshot every supported market */
+        for (const { base, quote } of this.getSupportedMarkers()) {
+          await this.snapshotOrderbook(`${base}_${quote}`);
+        }
 
-        // Then reconcile all user balances vs DB
-        await this.reconcileBalances();
-
-        console.log("Periodic snapshot & reconcile completed.");
-      } catch (error) {
-        console.error("Periodic task error:", error);
+        /* 2️⃣ Reconcile balances if interval elapsed */
+        const now = Date.now();
+        if (now - lastRecon >= RECONCILE_MS) {
+          try {
+            await this.reconcileBalances();
+            reconFails = 0; // success ⇒ reset counter
+          } catch (e) {
+            reconFails++;
+            console.error("⚠️  reconcileBalances failed:", e);
+            // Optional: exponential back-off after multiple failures
+            if (reconFails >= 3) {
+              console.error("⏳ backing off reconcile for 5× interval");
+              lastRecon = now - RECONCILE_MS * 4; // skip next 4 runs
+            }
+          }
+          lastRecon = now;
+        }
+      } catch (err) {
+        /* Any unexpected error stays inside the loop */
+        console.error("⛔ periodicTasks loop error:", err);
       }
-    }, INTERVAL_MS);
+    }, SNAPSHOT_MS);
   }
+
   getSupportedMarkers(): Array<{ base: string; quote: string }> {
     // If you want more markets, add them here
     return [{ base: "BTC", quote: BASE_CURRENCY }];
@@ -104,16 +128,39 @@ export class Engine {
     const supportedMarkets = this.getSupportedMarkers();
 
     // Initialize empty orderbooks
-    for (const market of supportedMarkets) {
-      const orderBook = new OrderBook(market.base, [], [], market.quote, 0, 0n);
-      this.orderBooks.push(orderBook);
+    // engine/Engine.ts  → initialize()
+    for (const { base, quote } of this.getSupportedMarkers()) {
+      /* 1️⃣ build an empty book right away */
+      const ob = new OrderBook(base, [], [], quote, 0, 0n);
+      this.orderBooks.push(ob);
+
+      const json = await RedisManager.getInstance().get(
+        `ticker:${base}_${quote}`
+      );
+      if (json) {
+        const { snapshot, history } = JSON.parse(json);
+        tickerAggregator.hyderateTicker(`${base}_${quote}`, snapshot, history);
+        continue;
+      }
+      const since = new Date(Date.now() - 24 * 60 * 60 * 1000); // 24 h ago
+      const rows = await prisma.trade.findMany({
+        where: { market: `${base}_${quote}`, timestamp: { gte: since } },
+        orderBy: { timestamp: "asc" },
+      });
+
+      for (const r of rows) {
+        tickerAggregator.updateTicker(`${base}_${quote}`, {
+          price: BigInt(r.price),
+          quantity: BigInt(r.quantity),
+        });
+      }
     }
 
     // 1) Load user balances from database
     this.loadAllBalancesFromDB();
 
     // 2) Recover state from the last snapshot + replay events
-    // await this.recoverState();
+    await this.recoverState();
 
     // 3) Start real-time Kline aggregator (if used)
     initRealTimeKlineAggregator();
@@ -123,8 +170,14 @@ export class Engine {
     const allUsers = await prisma.user.findMany();
     for (const user of allUsers) {
       this.balance.set(user.id, {
-        USDC: { available: BigInt(user.usdcBalance), locked: 0n },
-        BTC: { available: BigInt(user.btcBalance), locked: 0n },
+        USDC: {
+          available: BigInt(user.usdcBalance),
+          locked: BigInt(user.usdcLocked),
+        },
+        BTC: {
+          available: BigInt(user.btcBalance),
+          locked: BigInt(user.btcLocked),
+        },
       });
     }
     console.log("Engine: Loaded user balances into memory");
@@ -140,8 +193,14 @@ export class Engine {
       return;
     }
     this.balance.set(userId, {
-      USDC: { available: BigInt(user.usdcBalance), locked: 0n },
-      BTC: { available: BigInt(user.btcBalance), locked: 0n },
+      USDC: {
+        available: BigInt(user.usdcBalance),
+        locked: BigInt(user.usdcLocked),
+      },
+      BTC: {
+        available: BigInt(user.btcBalance),
+        locked: BigInt(user.btcLocked),
+      },
     });
     console.log(`Engine: Loaded balance for user ${userId}`);
   }
@@ -149,125 +208,259 @@ export class Engine {
   async recoverState() {
     for (const orderBook of this.orderBooks) {
       const market = orderBook.ticker();
-      console.log(" recoverState ~ market:", market);
+      console.log("Engine: recovering market", market);
       try {
-        const snapshotRecord = (await prisma.orderbookSnapshot.findUnique({
+        const snapshotRecord = await prisma.orderbookSnapshot.findFirst({
           where: { market },
-        })) as OrderbookSnapshot | null;
-
-        if (!snapshotRecord || !snapshotRecord.snapshot) {
-          console.log(`Engine: No snapshot found for market ${market}`);
+          orderBy: { createdAt: "desc" }, // newest snapshot
+        });
+        if (!snapshotRecord) {
+          console.log(`Engine: No snapshot for ${market}`);
           continue;
         }
 
-        const snapshot = JSON.parse(snapshotRecord.snapshot) as SnapshotData;
+        // rebuild in-memory book from that snapshot
+        const raw = snapshotRecord.snapshot;
 
-        orderBook.bids = snapshot.bids.map((order: any) => ({
-          ...order,
-          price: BigInt(order.price),
-          quantity: BigInt(order.quantity),
-          filled: BigInt(order.filled),
+        if (typeof raw !== "string") {
+          throw new Error(`Invalid snapshot format for market: ${market}`);
+        }
+
+        const snap = JSON.parse(raw) as SnapshotData;
+
+        orderBook.bids = snap.bids.map((o: any) => ({
+          ...o,
+          price: BigInt(o.price),
+          quantity: BigInt(o.quantity),
+          filled: BigInt(o.filled),
         }));
-
-        orderBook.asks = snapshot.asks.map((order: any) => ({
-          ...order,
-          price: BigInt(order.price),
-          quantity: BigInt(order.quantity),
-          filled: BigInt(order.filled),
+        orderBook.asks = snap.asks.map((o: any) => ({
+          ...o,
+          price: BigInt(o.price),
+          quantity: BigInt(o.quantity),
+          filled: BigInt(o.filled),
         }));
+        orderBook.lastTradeId = snap.lastTradeId;
+        orderBook.currentPrice = BigInt(snap.currentPrice);
 
-        orderBook.lastTradeId = snapshot.lastTradeId;
-        orderBook.currentPrice = BigInt(snapshot.currentPrice);
-
-        // Replay events from Redis that happened after the snapshot timestamp
-        const snapshotTimestamp = snapshotRecord.updatedAt.getTime();
-        await this.loadEventsFromRedis(snapshotTimestamp);
-      } catch (error) {
-        console.error(
-          `Engine: Error loading snapshot for market ${market}:`,
-          error
-        );
+        // now replay *after* that snapshot’s stream ID
+        await this.loadEventsFromStream(snapshotRecord.streamId);
+      } catch (err) {
+        console.error(`Engine: failed to recover ${market}`, err);
       }
     }
   }
 
-  async loadEventsFromRedis(snapshotTimestamp: number) {
-    try {
-      const minScore = snapshotTimestamp ? `(${snapshotTimestamp}` : "0";
-      const eventsJson = await RedisManager.getInstance().getZRangeByScore(
-        "event_store",
-        minScore,
-        "+inf"
+  // async loadEventsFromRedis(snapshotTimestamp: number) {
+  //   try {
+  //     const minScore = snapshotTimestamp ? `(${snapshotTimestamp}` : "0";
+  //     const eventsJson = await RedisManager.getInstance().getZRangeByScore(
+  //       "event_store",
+  //       minScore,
+  //       "+inf"
+  //     );
+  //     const events = eventsJson.map((json) => JSON.parse(json));
+  //     events.sort((a, b) => a.timestamp - b.timestamp);
+  //     console.log(`Engine: Replaying ${events.length} events from Redis`);
+  //     for (const event of events) {
+  //       this.applyEvents(event);
+  //     }
+  //   } catch (error) {
+  //     console.log(`Engine: Error loading events from Redis`, error);
+  //   }
+  // }
+
+  // private async loadEventsFromStream(startId: string) {
+  //   const manager = RedisManager.getInstance();
+  //   const GROUP = "engine-replay";
+  //   const CONSUMER = "replay-" + Math.random().toString(36).slice(2, 7);
+
+  //   // create consumer-group if needed
+  //   try {
+  //     await manager.xGroupCreate({
+  //       key: "events",
+  //       group: GROUP,
+  //       id: "0",
+  //       MKSTREAM: true,
+  //     });
+  //   } catch (e: any) {
+  //     if (!e.message.includes("BUSYGROUP")) throw e;
+  //   }
+
+  //   let cursor = startId;
+  //   while (true) {
+  //     const resp = await manager.xReadGroup(
+  //       GROUP,
+  //       CONSUMER,
+  //       { key: "events", id: cursor },
+  //       { COUNT: 100, BLOCK: 0 }
+  //     );
+  //     if (!resp) break;
+  //     for (const stream of resp) {
+  //       for (const msg of stream.messages) {
+  //         const ev: Event = JSON.parse(msg.message.json as string);
+  //         this.applyEvents(ev);
+  //         cursor = msg.id;
+  //       }
+  //     }
+  //   }
+  // }
+
+  private async loadEventsFromStream(startId: string) {
+    const rm = RedisManager.getInstance();
+    const GROUP = "engine-replay";
+    const CONSUMER = `engine-${crypto.randomUUID().slice(0, 6)}`;
+
+    // …consumer-group creation…
+
+    // 2) FIRST: drain any *pending* messages (un-acked from last run)
+    while (true) {
+      const pendingResp = await rm.xReadGroup(
+        GROUP,
+        CONSUMER,
+        { key: "events", id: startId }, // start at last snapshot ID
+        { COUNT: 100, BLOCK: 5000 }
       );
-      const events = eventsJson.map((json) => JSON.parse(json));
-      events.sort((a, b) => a.timestamp - b.timestamp);
-      console.log(`Engine: Replaying ${events.length} events from Redis`);
-      for (const event of events) {
-        this.applyEvents(event);
+      if (!pendingResp || pendingResp[0].messages.length === 0) break;
+      for (const msg of pendingResp[0].messages) {
+        const ev = JSON.parse(msg.message.json);
+        ev.id ??= msg.id;
+        try {
+          await this.applyEvents(ev);
+          await rm.xAck("events", GROUP, msg.id);
+        } catch (err) {
+          console.error("Failed to apply pending event", ev.id, err);
+          // leave un-acked to retry later
+        }
       }
-    } catch (error) {
-      console.log(`Engine: Error loading events from Redis`, error);
+    }
+
+    // 3) NOW consume only *new* events
+    while (true) {
+      const resp = await rm.xReadGroup(
+        GROUP,
+        CONSUMER,
+        { key: "events", id: ">" },
+        { COUNT: 100, BLOCK: 5000 }
+      );
+      if (!resp) continue;
+      for (const msg of resp[0].messages) {
+        const ev = JSON.parse(msg.message.json);
+        ev.id ??= msg.id;
+        try {
+          await this.applyEvents(ev);
+          await rm.xAck("events", GROUP, msg.id);
+        } catch (err) {
+          console.error("Failed to apply new event", ev.id, err);
+          // un-acked ⇒ will be retried on next startup
+        }
+      }
     }
   }
 
   async applyEvents(event: Event) {
-    // Prevent duplicate processing.
-    if (this.processedEventIds.has(event.id)) return;
-    this.processedEventIds.add(event.id);
+    const alreadyProcessed = await prisma.engineProcessedEvent.findUnique({
+      where: { id: event.id! },
+    });
+    if (alreadyProcessed) {
+      return; // skip processing
+    }
 
     switch (event.type) {
+      case "ORDERBOOK_SNAPSHOT":
+        return; // bookmark-only, never applied
+      /* ---------- orders --------------------------------------- */
       case ORDER_CREATE: {
-        const data = event.data;
-        const market = data.market;
-        const orderbook = this.orderBooks.find((o) => o.ticker() === market);
-        if (!orderbook) {
-          console.warn(
-            `Engine: Orderbook for market ${market} not found during event replay.`
-          );
-          return;
+        const d = event.data;
+        const ob = this.orderBooks.find((o) => o.ticker() === d.market);
+        if (!ob) {
+          console.warn(`replay: no book ${d.market}`);
+          break;
         }
-        // Reconstruct the order object from the event data.
-        const order = {
-          userId: data.userId,
-          orderId: data.orderId,
-          side: data.side,
-          price: BigInt(data.price),
-          quantity: BigInt(data.quantity),
-          filled: 0n, // Assume no fills initially
-          orderType: data.orderType, // "limit" or "market"
-          createdAt: Date.now(),
-        };
-        // Replay by processing the order on the orderbook.
-        orderbook.processOrder(order);
+
+        ob.insertWithoutMatching({
+          orderId: d.orderId,
+          userId: d.userId,
+          side: d.side,
+          price: BigInt(d.price),
+          quantity: BigInt(d.quantity),
+          filled: 0n,
+          orderType: d.orderType,
+          createdAt: d.timestamp,
+        });
         break;
       }
+
       case ORDER_UPDATE: {
-        const data = event.data;
-        const market = data.market;
-        const orderbook = this.orderBooks.find((o) => o.ticker() === market);
-        if (!orderbook) {
-          console.warn(
-            `Engine: Orderbook for market ${market} not found during ORDER_UPDATE replay.`
-          );
-          return;
+        const d = event.data;
+        const ob = this.orderBooks.find((o) => o.ticker() === d.market);
+        if (!ob) break;
+
+        // inside your ORDER_UPDATE handling
+        const ord = ob.findOrder(d.orderId);
+        if (!ord) break;
+
+        ord.filled = BigInt(d.executedQty);
+
+        // remove only when fully filled (or if you have other criteria)
+        if (ord.filled === ord.quantity) {
+          ob.removeOrder(ord.orderId); // ← pass the ID, not the object
         }
-        // Find the order in bids or asks.
-        let order =
-          orderbook.bids.find((o) => o.orderId === data.orderId) ||
-          orderbook.asks.find((o) => o.orderId === data.orderId);
-        if (order) {
-          // Update the order's filled quantity.
-          order.filled = BigInt(data.executedQty);
-        } else {
-          console.warn(
-            `Engine: Order ${data.orderId} not found in memory for ORDER_UPDATE replay.`
-          );
-        }
+
         break;
       }
+      case "DEPOSIT": {
+        const { userId, asset, amount } = event.data;
+        const w = this.balance.get(userId)!;
+        w[asset].available += BigInt(amount);
+        break;
+      }
+
+      case "ORDER_CANCEL": {
+        const { orderId, market } = event.data;
+        this.orderBooks
+          .find((ob) => ob.ticker() === market)
+          ?.removeOrder(orderId);
+        break;
+      }
+      /* ---------- wallet moves --------------------------------- */
+      case "BALANCE_LOCK": {
+        const w = this.balance.get(event.data.userId);
+        if (!w) break;
+        const a = event.data.asset;
+        const amt = BigInt(event.data.amount);
+        w[a].available -= amt;
+        w[a].locked += amt;
+        break;
+      }
+      case "BALANCE_UNLOCK": {
+        const w = this.balance.get(event.data.userId);
+        if (!w) break;
+        const a = event.data.asset;
+        const amt = BigInt(event.data.amount);
+        w[a].locked -= amt;
+        w[a].available += amt;
+        break;
+      }
+
+      case "TRADE_FILL": {
+        const { buyUserId, sellUserId, baseAsset, quoteAsset, qty, quote } =
+          event.data;
+        const buy = this.balance.get(buyUserId)!;
+        const sell = this.balance.get(sellUserId)!;
+        buy[quoteAsset].locked -= BigInt(quote);
+        buy[baseAsset].available += BigInt(qty);
+        sell[baseAsset].locked -= BigInt(qty);
+        sell[quoteAsset].available += BigInt(quote);
+        break;
+      }
+
       default:
-        console.warn(`Engine: Unknown event type ${event.type} during replay`);
+      // ignore other event types during replay
     }
+    await prisma.engineProcessedEvent.create({
+      data: { id: event.id! },
+    });
   }
 
   /**
@@ -276,56 +469,46 @@ export class Engine {
    *  - Publishes a BALANCE_UPDATE event for DB persistence.
    */
   async onRamp(userId: string, amount: bigint) {
-    if (amount <= 0n) {
-      throw new Error("Invalid amount for onRamp");
-    }
-    const userBalance = this.balance.get(userId);
-    if (!userBalance) {
-      this.balance.set(userId, {
-        [BASE_CURRENCY]: {
-          available: amount,
-          locked: 0n,
-        },
-      });
-    } else {
-      userBalance[BASE_CURRENCY].available += amount;
-    }
+    if (amount <= 0n) throw new Error("Invalid amount");
 
-    const event: Event = {
-      id: this.generateUniqueId(),
-      type: "BALANCE_UPDATE",
+    // 1️⃣ update RAM
+    const bal = this.balance.get(userId) ?? {
+      [BASE_CURRENCY]: { available: 0n, locked: 0n },
+    };
+    bal[BASE_CURRENCY].available += amount;
+    this.balance.set(userId, bal);
+
+    // 2️⃣ durable ledger event
+    await EventStore.publishEvent({
+      type: "DEPOSIT",
       data: {
         userId,
-        asset: BASE_CURRENCY,
-        available: this.balance
-          .get(userId)!
-          [BASE_CURRENCY].available.toString(),
-        locked: this.balance.get(userId)![BASE_CURRENCY].locked.toString(),
+        asset: BASE_CURRENCY, // "USDC"
+        amount: amount.toString(), // delta, not total
       },
       timestamp: Date.now(),
-    };
-    await EventStore.publishEvent(event);
+    });
   }
 
   generateUniqueId(): string {
     return crypto.randomUUID();
   }
 
-  async persistBalanceUpdate(userId: string) {
-    const userBalance = this.balance.get(userId);
-    if (!userBalance) {
-      console.error(`No balance found for user ${userId}`);
-      return;
-    }
-    // Update only USDC and BTC for demonstration
-    await prisma.user.update({
-      where: { id: userId },
-      data: {
-        usdcBalance: userBalance.USDC ? userBalance.USDC.available : 0n,
-        btcBalance: userBalance.BTC ? userBalance.BTC.available : 0n,
-      },
-    });
-  }
+  // async persistBalanceUpdate(userId: string) {
+  //   const userBalance = this.balance.get(userId);
+  //   if (!userBalance) {
+  //     console.error(`No balance found for user ${userId}`);
+  //     return;
+  //   }
+  //   // Update only USDC and BTC for demonstration
+  //   await prisma.user.update({
+  //     where: { id: userId },
+  //     data: {
+  //       usdcBalance: userBalance.USDC ? userBalance.USDC.available : 0n,
+  //       btcBalance: userBalance.BTC ? userBalance.BTC.available : 0n,
+  //     },
+  //   });
+  // }
 
   /**
    * Main router for messages from the API/WebSocket.
@@ -651,12 +834,15 @@ export class Engine {
       },
       timestamp: Date.now(),
     };
-    EventStore.publishEvent(orderCreateEvent);
+    await EventStore.publishEvent(orderCreateEvent);
+
+    console.error("[TEST‑2] crash after publishing ORDER_CREATE");
+    process.exit(1);
 
     // 2) Lock user funds
     const [baseAsset, quoteAsset] = market.split("_");
     if (orderType === "limit") {
-      this.checkAndLockFunds(
+      await this.checkAndLockFunds(
         baseAsset,
         quoteAsset,
         userId,
@@ -682,7 +868,7 @@ export class Engine {
         await this.emitBalanceLock(userId, quoteAsset, estimatedCost);
       } else {
         // Market sell => lock exactly the baseAsset
-        this.checkAndLockFunds(
+        await this.checkAndLockFunds(
           baseAsset,
           quoteAsset,
           userId,
@@ -714,6 +900,11 @@ export class Engine {
       throw new Error("IOC and Post Only cannot be combined");
 
     const { executedQty, fills } = orderbook.processOrder(order);
+
+    // console.error(
+    //   "💥 Crash-test: exiting immediately after match, before settlement"
+    // );
+    // process.exit(1);
 
     if (ioc) {
       const unfilledQty = quantity - executedQty;
@@ -749,23 +940,22 @@ export class Engine {
         0n
       );
       const worstCase = mulDiv(price, executedQty, BTC_SCALE.toString());
-      const diff = worstCase - costExecuted; // positive when trades were cheaper
+      const diff = worstCase - costExecuted;
       if (diff > 0n) {
-        const qb = this.balance.get(userId)![quoteAsset];
-        qb.locked -= diff;
-        qb.available += diff;
+        // Treat refund as “unlock the leftover quote”
+        await this.emitBalanceUnlock(userId, quoteAsset, diff);
       }
     }
     // -------------------------------------------------------------
 
     // 5) Publish BALANCE_UPDATE events so the DB stays consistent
     //    (We do this for taker + any maker user IDs.)
-    this.publishBalanceUpdates(userId, baseAsset, quoteAsset);
-    for (const fill of fills) {
-      if (fill.makerUserId) {
-        this.publishBalanceUpdates(fill.makerUserId, baseAsset, quoteAsset);
-      }
-    }
+    // this.publishBalanceUpdates(userId, baseAsset, quoteAsset);
+    // for (const fill of fills) {
+    //   if (fill.makerUserId) {
+    //     this.publishBalanceUpdates(fill.makerUserId, baseAsset, quoteAsset);
+    //   }
+    // }
 
     // 6) Publish trade & order updates to DB (via event store)
     this.createDbTrades(fills, market, userId);
@@ -846,7 +1036,6 @@ export class Engine {
     if (amount == 0n) return;
 
     const evt: Event = {
-      id: crypto.randomUUID(),
       type: "BALANCE_LOCK",
       data: { userId, asset, amount: amount.toString() },
       timestamp: Date.now(),
@@ -873,7 +1062,6 @@ export class Engine {
     if (amount === 0n) return;
 
     const evt: Event = {
-      id: crypto.randomUUID(),
       type: "BALANCE_UNLOCK",
       data: { userId, asset, amount: amount.toString() },
       timestamp: Date.now(),
@@ -897,15 +1085,13 @@ export class Engine {
     baseAsset: string, // e.g. "BTC"
     quoteAsset: string, // e.g. "USDC"
     price: bigint, // match price
-    qty: bigint, // executed base qty
-    fee: bigint = 0n
+    qty: bigint // executed base qty
   ): Promise<void> {
     if (qty === 0n) return;
 
     const quote = mulDiv(price, qty, BTC_SCALE.toString()); // cost = p*q
 
     const evt: Event = {
-      id: crypto.randomUUID(),
       type: "TRADE_FILL",
       data: {
         buyUserId,
@@ -915,7 +1101,6 @@ export class Engine {
         price: price.toString(),
         qty: qty.toString(),
         quote: quote.toString(),
-        fee: fee.toString(),
       },
       timestamp: Date.now(),
     };
@@ -928,14 +1113,38 @@ export class Engine {
     const sellW = this.balance.get(sellUserId)!;
 
     // buyer
-    buyW[quoteAsset].locked -= quote + fee;
+    buyW[quoteAsset].locked -= quote;
     buyW[baseAsset].available += qty;
 
     // seller
     sellW[baseAsset].locked -= qty;
     sellW[quoteAsset].available += quote;
+  }
 
-    // fees → exchange wallet if you have one (skipped here)
+  private async emitBalanceMismatch(data: {
+    userId: string;
+    asset: "USDC" | "BTC";
+    ledgerAvail: bigint;
+    walletAvail: bigint;
+    diffAvail: bigint;
+    ledgerLocked: bigint;
+    walletLocked: bigint;
+    diffLocked: bigint;
+  }) {
+    await EventStore.publishEvent({
+      type: "BALANCE_MISMATCH",
+      data: {
+        userId: data.userId,
+        asset: data.asset,
+        ledgerAvail: data.ledgerAvail.toString(),
+        walletAvail: data.walletAvail.toString(),
+        diffAvail: data.diffAvail.toString(),
+        ledgerLocked: data.ledgerLocked.toString(),
+        walletLocked: data.walletLocked.toString(),
+        diffLocked: data.diffLocked.toString(),
+      },
+      timestamp: Date.now(),
+    });
   }
 
   /**
@@ -947,6 +1156,11 @@ export class Engine {
     clientId: string,
     userId: string
   ) {
+    await EventStore.publishEvent({
+      type: "ORDER_CANCEL",
+      data: { orderId, market },
+      timestamp: Date.now(),
+    });
     const cancelOrderbook = this.orderBooks.find((o) => o.ticker() === market);
     if (!cancelOrderbook) {
       throw new Error("No orderbook found");
@@ -965,7 +1179,11 @@ export class Engine {
       if (!price) throw new Error("Order price not found");
 
       // leftover = (quantity - filled) * price
-      const leftoverLocked = (order.quantity - order.filled) * order.price;
+      const leftoverLocked = mulDiv(
+        order.price, // 6-dec USDC
+        order.quantity - order.filled, // 8-dec satoshis
+        BTC_SCALE.toString() // 1e8
+      );
       const userBalances = this.balance.get(order.userId);
       if (!userBalances) throw new Error(`User ${order.userId} not found`);
       await this.emitBalanceUnlock(order.userId, quoteAsset, leftoverLocked);
@@ -1031,7 +1249,7 @@ export class Engine {
    * Update maker & taker in-memory balances after a trade.
    * (We do not publish DB updates here; we just fix the memory.)
    */
-  public updateBalance(
+  public async updateBalance(
     takerId: string,
     baseAsset: string,
     quoteAsset: string,
@@ -1041,7 +1259,7 @@ export class Engine {
     for (const f of fills) {
       if (side === "buy") {
         // taker = buyer
-        this.emitTradeFill(
+        await this.emitTradeFill(
           takerId, // buyUserId
           f.makerUserId!, // sellUserId
           baseAsset,
@@ -1051,7 +1269,7 @@ export class Engine {
         );
       } else {
         // taker = seller
-        this.emitTradeFill(
+        await this.emitTradeFill(
           f.makerUserId!, // buyUserId
           takerId, // sellUserId
           baseAsset,
@@ -1067,7 +1285,7 @@ export class Engine {
    * Publish a BALANCE_UPDATE event for a user's current base & quote asset.
    * This ensures the DB eventually sees the updated in-memory balances.
    */
-  private publishBalanceUpdates(
+  private async publishBalanceUpdates(
     userId: string,
     baseAsset: string,
     quoteAsset: string
@@ -1078,7 +1296,6 @@ export class Engine {
     // Publish for baseAsset
     {
       const event: Event = {
-        id: this.generateUniqueId(),
         type: "BALANCE_UPDATE",
         data: {
           userId,
@@ -1088,12 +1305,11 @@ export class Engine {
         },
         timestamp: Date.now(),
       };
-      EventStore.publishEvent(event);
+      await EventStore.publishEvent(event);
     }
     // Publish for quoteAsset
     {
       const event: Event = {
-        id: this.generateUniqueId(),
         type: "BALANCE_UPDATE",
         data: {
           userId,
@@ -1103,7 +1319,7 @@ export class Engine {
         },
         timestamp: Date.now(),
       };
-      EventStore.publishEvent(event);
+      await EventStore.publishEvent(event);
     }
   }
 
@@ -1153,14 +1369,13 @@ export class Engine {
     }
   }
 
-  updateDbOrders(
+  async updateDbOrders(
     order: Order,
     executedQty: bigint,
     fills: Fill[],
     market: string
   ) {
     const orderUpdateEvent: Event = {
-      id: this.generateUniqueId(),
       type: "ORDER_UPDATE",
       data: {
         orderId: order.orderId,
@@ -1172,12 +1387,11 @@ export class Engine {
       },
       timestamp: Date.now(),
     };
-    EventStore.publishEvent(orderUpdateEvent);
+    await EventStore.publishEvent(orderUpdateEvent);
 
     // Also update the maker orders
     for (const fill of fills) {
       const fillUpdateEvent: Event = {
-        id: this.generateUniqueId(),
         type: "ORDER_UPDATE",
         data: {
           orderId: fill.makerOrderId!,
@@ -1185,7 +1399,7 @@ export class Engine {
         },
         timestamp: Date.now(),
       };
-      EventStore.publishEvent(fillUpdateEvent);
+      await EventStore.publishEvent(fillUpdateEvent);
     }
   }
 
@@ -1196,61 +1410,90 @@ export class Engine {
    */
   public async reconcileBalances() {
     const dbUsers = await prisma.user.findMany();
+
     for (const user of dbUsers) {
-      const memBalance = this.balance.get(user.id);
-      if (memBalance) {
-        const dbUSDC = BigInt(user.usdcBalance);
-        if (memBalance.USDC.available !== dbUSDC) {
+      const wallet = this.balance.get(user.id);
+      if (!wallet) {
+        console.warn(`Reconcile: user ${user.id} is missing from RAM`);
+        continue;
+      }
+
+      for (const asset of ["USDC", "BTC"] as const) {
+        const ledgerAvail =
+          asset === "USDC" ? BigInt(user.usdcBalance) : BigInt(user.btcBalance);
+
+        const ledgerLocked =
+          asset === "USDC" ? BigInt(user.usdcLocked) : BigInt(user.btcLocked);
+
+        const memAvail = wallet[asset].available;
+        const memLocked = wallet[asset].locked;
+
+        const diffAvail = memAvail - ledgerAvail;
+        const diffLocked = memLocked - ledgerLocked;
+
+        if (diffAvail === 0n && diffLocked === 0n) continue; // no drift
+
+        /* emit one event that describes both drifts */
+        await this.emitBalanceMismatch({
+          userId: user.id,
+          asset,
+          ledgerAvail,
+          walletAvail: memAvail,
+          diffAvail,
+          ledgerLocked,
+          walletLocked: memLocked,
+          diffLocked,
+        });
+
+        const totalDrift = diffAvail + diffLocked;
+        if (
+          totalDrift > ALERT_THRESHOLD[asset] ||
+          totalDrift < -ALERT_THRESHOLD[asset]
+        ) {
           console.error(
-            `Reconciliation discrepancy for user ${user.id}: In‑memory USDC=${memBalance.USDC.available} vs DB=${dbUSDC}`
+            `[ALERT] drift ${totalDrift} ${asset} on user ${user.id}`
           );
-          // Reissue an event or correct it
-          const event: Event = {
-            id: this.generateUniqueId(),
-            type: "BALANCE_UPDATE",
-            data: {
-              userId: user.id,
-              asset: BASE_CURRENCY,
-              available: memBalance.USDC.available.toString(),
-              locked: memBalance.USDC.locked.toString(),
-            },
-            timestamp: Date.now(),
-          };
-          await EventStore.publishEvent(event);
         }
-        // You can check BTC similarly:
-        // const dbBTC = BigInt(user.btcBalance);
-        // if (memBalance.BTC.available !== dbBTC) {...}
-      } else {
-        console.warn(`User ${user.id} missing in memory during reconciliation`);
       }
     }
-    console.log("Reconciliation: Completed balance check.");
   }
 
   /**
    * Snapshot the entire orderbook for a single market and publish an event for DB.
    */
   public async snapshotOrderbook(market: string) {
-    const orderbook = this.orderBooks.find((ob) => ob.ticker() === market);
-    if (!orderbook) {
-      console.error(`No orderbook found for market ${market} to snapshot`);
-      return;
-    }
-    const snapshot = orderbook.getSnapshot();
-    const event: Event = {
-      id: this.generateUniqueId(),
-      type: "ORDERBOOK_SNAPSHOT",
-      data: {
-        market,
-        snapshot: JSON.stringify(snapshot, (_, value) =>
-          typeof value === "bigint" ? value.toString() : value
-        ),
-      },
+    const ob = this.orderBooks.find((o) => o.ticker() === market);
+    if (!ob) return;
+
+    const json = JSON.stringify(ob.getSnapshot(), (_, v) =>
+      typeof v === "bigint" ? v.toString() : v
+    );
+
+    // write a tiny audit event just to bookmark the position
+    const streamId = await EventStore.publishEvent({
+      type: "ORDERBOOK_SNAPSHOT", // still useful for tracing
+      data: { market }, // no giant blob
       timestamp: Date.now(),
-    };
-    await EventStore.publishEvent(event);
-    console.log(`Snapshot published for market ${market}`);
+    });
+
+    await prisma.orderbookSnapshot.create({
+      data: { market, snapshot: json, streamId },
+    });
+
+    /* Optional: keep only the 5 newest snapshots per market */
+    await prisma.$executeRawUnsafe(
+      `
+      DELETE FROM "OrderbookSnapshot"
+      WHERE id IN (
+        SELECT id FROM "OrderbookSnapshot"
+        WHERE market = $1
+        ORDER BY "createdAt" DESC
+        OFFSET 5
+      );
+    `,
+      market
+    );
+    console.log(`Snapshot upserted for ${market} @ ${streamId}`);
   }
 
   /**
@@ -1374,7 +1617,7 @@ export class Engine {
   /**
    * Update ticker aggregator and push out
    */
-  public updateAndPublishTicker(fills: Fill[], market: string) {
+  public async updateAndPublishTicker(fills: Fill[], market: string) {
     for (const fill of fills) {
       tickerAggregator.updateTicker(market, {
         price: fill.price,
@@ -1400,6 +1643,11 @@ export class Engine {
         },
       });
     }
+    const payload = {
+      snapshot: tickerAggregator.getTicker(market), // all the 24-h numbers
+      history: tickerAggregator.getHistory(market), // the trade list
+    };
+    await RedisManager.getInstance().set(`ticker:${market}`, payload);
   }
 
   private formatBalanceForTransport(balance: any) {
