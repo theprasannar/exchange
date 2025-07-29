@@ -836,9 +836,6 @@ export class Engine {
     };
     await EventStore.publishEvent(orderCreateEvent);
 
-    console.error("[TEST‑2] crash after publishing ORDER_CREATE");
-    process.exit(1);
-
     // 2) Lock user funds
     const [baseAsset, quoteAsset] = market.split("_");
     if (orderType === "limit") {
@@ -1477,7 +1474,7 @@ export class Engine {
     });
 
     await prisma.orderbookSnapshot.create({
-      data: { market, snapshot: json, streamId },
+      data: { market, snapshot: json, streamId, eventId: streamId },
     });
 
     /* Optional: keep only the 5 newest snapshots per market */

@@ -53,23 +53,25 @@ async function main(): Promise<void> {
 
     // xReadGroup always returns this nested shape:
     // [ [ streamKey, [ [ entryId, { field: value, ... } ] ] ] ]
-    const [[, entries]] = response;
-    for (const [entryId, fields] of entries) {
-      try {
-        const payload = JSON.parse(fields.json);
-        const { clientId } = payload;
+    for (const stream of response) {
+      for (const msg of stream.messages) {
+        const entryId = msg.id;
+        const fields = msg.message; // { json: '…' }
 
-        const result = engine.process(payload);
+        try {
+          const payload = JSON.parse(fields.json);
+          const { clientId } = payload;
 
-        if (result) {
-          await redisClient.publish(clientId, JSON.stringify(result));
+          const result = engine.process(payload);
+          if (result) {
+            await redisClient.publish(clientId, JSON.stringify(result));
+          }
+
+          await redisClient.xAck(ORDERS_STREAM, GROUP_NAME, entryId);
+        } catch (err) {
+          console.error("❌  Failed to handle entry", entryId, err);
+          // un‑acked → will replay after restart
         }
-
-        // acknowledge only after successful processing
-        await redisClient.xAck(ORDERS_STREAM, GROUP_NAME, entryId);
-      } catch (err) {
-        console.error("❌  Failed to handle entry", entryId, err);
-        // no xAck here → entry stays pending and will replay later
       }
     }
   }
