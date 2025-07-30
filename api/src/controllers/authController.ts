@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction, RequestHandler } from "express";
-import prisma from "../../../db/src/lib/prisma";
+import prisma from "@exchange/db";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import { RedisManager } from "../RedisManager";

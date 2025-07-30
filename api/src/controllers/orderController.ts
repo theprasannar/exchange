@@ -7,7 +7,6 @@ import {
   GET_OPEN_ORDERS,
 } from "../types";
 import { btcToAtomic, usdcToAtomic } from "../utils/currency";
-import prisma from "../../../db/src/lib/prisma";
 
 export const createOrderController = async (
   req: Request,
