@@ -22,6 +22,7 @@ export interface Event {
 
 function isUnique(e: unknown): boolean {
   return (
+    //@ts-ignore
     e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002"
   );
 }
@@ -32,7 +33,7 @@ function isUnique(e: unknown): boolean {
 
 async function safeProcess(event: Event): Promise<void> {
   await prisma.$transaction(
-    async (tx) => {
+    async (tx: Prisma.TransactionClient) => {
       await processEventWithTx(event, tx);
 
       // mark processed (idempotent safeguard)
