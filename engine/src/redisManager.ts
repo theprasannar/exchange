@@ -15,10 +15,11 @@ export class RedisManager {
     // Create both clients
     this.publisherClient = createClient();
     this.subscriberClient = createClient();
+    const redisUrl = process.env.REDIS_URL || "redis://localhost:6379"; // fallback for local dev
 
-    // Connect both
-    this.publisherClient.connect();
-    this.subscriberClient.connect();
+    // Create both clients with the URL
+    this.publisherClient = createClient({ url: redisUrl });
+    this.subscriberClient = createClient({ url: redisUrl });
   }
 
   // Singleton pattern
