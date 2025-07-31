@@ -5,6 +5,7 @@
   "version": "1.0.0",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
+    "prepare": "prisma generate && tsc -p tsconfig.json",
     "build": "prisma generate && tsc -p tsconfig.json",
     "prisma:deploy": "prisma migrate deploy"
   },
