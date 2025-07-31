@@ -1,7 +1,10 @@
 {
-    "name": "exchange-monorepo",
-    "private": true,
-    "version": "1.0.0",
-    "workspaces": ["api", "db", "engine", "ws"]
+  "name": "exchange-monorepo",
+  "private": true,
+  "version": "1.0.0",
+  "workspaces": ["api", "db", "engine", "ws"],
+
+  "scripts": {
+    "build": "npm run --workspace=db build && npm run --workspace=engine build && npm run --workspace=api build && npm run --workspace=ws build"
   }
-  
+}
