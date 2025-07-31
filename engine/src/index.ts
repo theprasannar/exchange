@@ -25,7 +25,9 @@ async function waitForRedisReady(client: ReturnType<typeof createClient>) {
 
 async function main(): Promise<void> {
   const engine = new Engine();
-  const redisClient = createClient();
+  const redisClient = createClient({
+    url: process.env.REDIS_URL || "redis://localhost:6379",
+  }); // ← GOOD
 
   await redisClient.connect();
   console.log("🔌  Engine connected to Redis");
