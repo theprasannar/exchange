@@ -11,15 +11,21 @@ export class RedisManager {
   // 2) Subscriber client for subscribing only
   private subscriberClient: RedisClientType;
 
+  // *** NEW *** track when both clients are connected
+  private ready: Promise<void>;
+
   private constructor() {
-    // Create both clients
-    this.publisherClient = createClient();
-    this.subscriberClient = createClient();
     const redisUrl = process.env.REDIS_URL || "redis://localhost:6379"; // fallback for local dev
 
     // Create both clients with the URL
     this.publisherClient = createClient({ url: redisUrl });
     this.subscriberClient = createClient({ url: redisUrl });
+
+    // *** NEW *** connect and keep the promise
+    this.ready = Promise.all([
+      this.publisherClient.connect(),
+      this.subscriberClient.connect(),
+    ]).then(() => {});
   }
 
   // Singleton pattern
@@ -30,28 +36,31 @@ export class RedisManager {
     return RedisManager.instance;
   }
 
+  private async ensureReady() {
+    await this.ready; // *** NEW ***
+  }
+
   private static toJson(value: any): string {
     return JSON.stringify(value, (_, v) =>
       typeof v === "bigint" ? v.toString() : v
     );
   }
+
   /**
    * ============ PUBLISH METHODS ============
-   * You can do any typical Redis operation on the "publisherClient".
-   * For example, publishing events or pushing items to a queue.
    */
-  public publishMessage(channel: string, message: WsMessage | any) {
-    // Use publisher client
+  public async publishMessage(channel: string, message: WsMessage | any) {
+    await this.ensureReady(); // *** NEW ***
     this.publisherClient.publish(channel, JSON.stringify(message));
   }
 
-  public sendToApi(clientId: string, message: MessageToAPI) {
-    // Use publisher client
+  public async sendToApi(clientId: string, message: MessageToAPI) {
+    await this.ensureReady(); // *** NEW ***
     this.publisherClient.publish(clientId, JSON.stringify(message));
   }
 
-  public pushMessage(message: DbMessage) {
-    // Use publisher client
+  public async pushMessage(message: DbMessage) {
+    await this.ensureReady(); // *** NEW ***
     this.publisherClient.lPush("db_processor", JSON.stringify(message));
   }
 
@@ -60,16 +69,17 @@ export class RedisManager {
     group: string,
     id: string
   ): Promise<number> {
-    // delegate to the underlying Redis client
+    await this.ensureReady(); // *** NEW ***
     return this.publisherClient.xAck(stream, group, id);
   }
-  // redisManager.ts
+
   public async xAdd(
     stream: string,
     id: string, // "*" or explicit id
     json: string,
     maxLen = 10_000_000
   ) {
+    await this.ensureReady(); // *** NEW ***
     return this.publisherClient.xAdd(
       stream,
       id,
@@ -79,23 +89,25 @@ export class RedisManager {
   }
 
   public async set(key: string, value: any) {
+    await this.ensureReady(); // *** NEW ***
     await this.publisherClient.set(key, RedisManager.toJson(value));
   }
 
   public async get(key: string) {
-    return await this.publisherClient.get(key);
+    await this.ensureReady(); // *** NEW ***
+    return this.publisherClient.get(key);
   }
 
-  // inside RedisManager
   /**
-   * Create a consumer group on a stream.
+   * ============ STREAM HELPERS ============
    */
   public async xGroupCreate(params: {
-    key: string; // stream name
-    group: string; // consumer-group name
-    id: string; // "0", "$", etc.
-    MKSTREAM?: boolean; // auto-create stream if missing
+    key: string;
+    group: string;
+    id: string;
+    MKSTREAM?: boolean;
   }): Promise<string> {
+    await this.ensureReady(); // *** NEW ***
     const { key, group, id, MKSTREAM } = params;
     return this.publisherClient.xGroupCreate(
       key,
@@ -105,9 +117,6 @@ export class RedisManager {
     );
   }
 
-  /**
-   * Read from a stream via XREADGROUP.
-   */
   public async xReadGroup(
     group: string,
     consumer: string,
@@ -117,14 +126,8 @@ export class RedisManager {
     name: string;
     messages: Array<{ id: string; message: Record<string, string> }>;
   }> | null> {
-    // ← allow the “no messages” case
-    // Redis v4 expects an array of streams: [{ key, id }]
-    return this.publisherClient.xReadGroup(
-      group,
-      consumer,
-      [stream], // wrap in array
-      opts
-    );
+    await this.ensureReady(); // *** NEW ***
+    return this.publisherClient.xReadGroup(group, consumer, [stream], opts);
   }
 
   public async xRead(
@@ -134,17 +137,18 @@ export class RedisManager {
     name: string;
     messages: Array<{ id: string; message: Record<string, string> }>;
   }> | null> {
-    return await this.publisherClient.xRead(streams, opts);
+    await this.ensureReady(); // *** NEW ***
+    return this.publisherClient.xRead(streams, opts);
   }
+
   /**
-   * ============ SUBSCRIBE METHOD ============
-   * This puts the "subscriberClient" into subscriber mode for the given channel.
-   * Once in subscriber mode, that client CANNOT perform other ops like publish.
+   * ============ SUBSCRIBE ============
    */
   public subscribe(channel: string, onMessage: (message: string) => void) {
-    // Use subscriber client
-    this.subscriberClient.subscribe(channel, (rawMessage) => {
-      onMessage(rawMessage);
+    this.ready.then(() => {
+      this.subscriberClient.subscribe(channel, (rawMessage) => {
+        onMessage(rawMessage);
+      });
     });
   }
 }
