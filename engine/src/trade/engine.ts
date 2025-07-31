@@ -16,7 +16,7 @@ import {
 import { BTC_SCALE, mulDiv } from "../utils/currency";
 import { tickerAggregator } from "./tickerAggregator";
 import { initRealTimeKlineAggregator } from "./realTimeKline";
-import prisma from "../../../db/src/lib/prisma";
+import prisma from "@exchange/db";
 import { EventStore, Event } from "./EventStore";
 
 // Just to avoid TS errors about crypto:
