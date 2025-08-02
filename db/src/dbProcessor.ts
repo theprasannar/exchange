@@ -270,7 +270,8 @@ async function pushToDeadLetterQueue(event: Event): Promise<void> {
 // ---------------------------------------------------------------------------
 
 async function consumeStreams(): Promise<void> {
-  const client = createClient();
+  const url = process.env.REDIS_URL || "redis://localhost:6379";
+  const client = createClient({ url });
   await client.connect();
 
   const GROUP = "ledger-writer";

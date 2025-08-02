@@ -9,8 +9,9 @@ export class RedisManager {
   private static instance: RedisManager;
 
   private constructor() {
-    this.client = createClient();
-    this.publisher = createClient();
+    const url = process.env.REDIS_URL || "redis://localhost:6379";
+    this.client = createClient({ url });
+    this.publisher = createClient({ url });
 
     this.client.on("error", (e) => console.error("Redis subscriber error:", e));
     this.publisher.on("error", (e) =>
