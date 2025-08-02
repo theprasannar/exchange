@@ -1,34 +1,37 @@
 // prisma/schema.prisma
-
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider          = "postgresql"
+  url               = env("DATABASE_URL")
   shadowDatabaseUrl = env("SHADOW_DATABASE_URL")
 }
-
 
 generator client {
   provider = "prisma-client-js"
 }
 
-// User table: stores authentication info and default balances.
-model User {
-  id             String    @id @default(uuid())
-  email          String    @unique
-  hashedPassword String
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
-  // Balances are stored as atomic values:
-  usdcBalance    BigInt    @default(1000000000000)  
-  btcBalance     BigInt    @default(5000000000)   
+////////////////////////  Users  ////////////////////////
 
-  orders         Order[]
-  trades         Trade[]   @relation("UserTrades")
+model User {
+  id             String   @id @default(uuid())
+  email          String   @unique
+  hashedPassword String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  usdcBalance BigInt @default(1000000000000)
+  usdcLocked  BigInt @default(0)
+  btcBalance  BigInt @default(5000000000)
+  btcLocked   BigInt @default(0)
+
+  orders Order[]
+  trades Trade[] @relation("UserTrades")
 }
 
-// Order table: persists order details from your matching engine.
+////////////////////////  Orders  ///////////////////////
+
 model Order {
   id        String      @id @default(uuid())
+  eventId   String      @unique                    // <‑‑ added
   userId    String
   market    String
   side      OrderSide
@@ -39,15 +42,14 @@ model Order {
   createdAt DateTime    @default(now())
   updatedAt DateTime    @updatedAt
 
-  user      User        @relation(fields: [userId], references: [id])
-  trades    Trade[]     @relation("OrderTrades")
+  user   User   @relation(fields: [userId], references: [id])
+  trades Trade[] @relation("OrderTrades")
 }
 
 enum OrderSide {
   buy
   sell
 }
-
 
 enum OrderStatus {
   PENDING
@@ -56,9 +58,11 @@ enum OrderStatus {
   CANCELLED
 }
 
-// Trade table: records executed trades.
+////////////////////////  Trades  ///////////////////////
+
 model Trade {
   id            String   @id @default(uuid())
+  eventId       String   @unique                 // <‑‑ added
   tradeId       Int      @unique
   market        String
   price         BigInt
@@ -67,22 +71,20 @@ model Trade {
   isBuyerMaker  Boolean
   timestamp     DateTime
 
-  // Optionally record maker/taker info.
   makerOrderId  String?
   takerOrderId  String?
   makerUserId   String?
   takerUserId   String?
-  
-  // You can optionally link a trade to an order.
-  order   Order?   @relation("OrderTrades", fields: [orderId], references: [id])
+
+  order   Order? @relation("OrderTrades", fields: [orderId], references: [id])
   orderId String?
 
-  // Also, optionally link to a user.
-  user   User?    @relation("UserTrades", fields: [userId], references: [id])
+  user   User?  @relation("UserTrades", fields: [userId], references: [id])
   userId String?
 }
 
-// Ticker table: stores aggregated market ticker data.
+////////////////////  Market data  //////////////////////
+
 model Ticker {
   id        String   @id @default(uuid())
   market    String   @unique
@@ -96,36 +98,67 @@ model Ticker {
 model Kline {
   id         String   @id @default(uuid())
   market     String
-  interval   String   // e.g. "1m", "5m", "1h", "1d"
+  interval   String   // "1m", "5m", …
   open       BigInt
   high       BigInt
   low        BigInt
   close      BigInt
-  volume     BigInt    // base asset volume
+  volume     BigInt
   trades     Int
   startTime  DateTime
   endTime    DateTime
-  updatedAt  DateTime  @default(now()) @updatedAt
-  
+  updatedAt  DateTime @default(now()) @updatedAt
+
   @@unique([market, interval, startTime])
 }
 
 model OrderbookSnapshot {
   id        String   @id @default(uuid())
-  market    String   @unique
+  eventId   String   @unique                 // <‑‑ added
+  market    String
+  streamId  String
   snapshot  Json
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+
+  @@index([market, createdAt])
 }
-
-
 
 model AggregatorState {
   id        String   @id @default(uuid())
   market    String
   interval  String
-  lastTime  DateTime // The last time we aggregated trades up to
+  lastTime  DateTime
   updatedAt DateTime @default(now()) @updatedAt
-  
+
   @@unique([market, interval])
+}
+
+////////////////////  Reconciliation  ////////////////////
+
+model BalanceMismatch {
+  id            String   @id @default(uuid())
+  eventId       String   @unique                 // handy for replays
+  userId        String
+  asset         String   @db.VarChar(12)
+  ledgerAvail   BigInt
+  walletAvail   BigInt
+  diffAvail     BigInt
+  ledgerLocked  BigInt
+  walletLocked  BigInt
+  diffLocked    BigInt
+  createdAt     DateTime @default(now())
+
+  @@index([userId, asset])
+}
+
+////////////////////  House‑keeping  ////////////////////
+
+model ProcessedEvent {
+  id        String   @id
+  createdAt DateTime @default(now())
+}
+
+model EngineProcessedEvent {
+  id        String   @id
+  createdAt DateTime @default(now())
 }
