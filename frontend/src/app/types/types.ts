@@ -24,6 +24,7 @@ export type Trade = {
 export interface Depth {
   bids: [string, string][];
   asks: [string, string][];
+  price: string | null;
   lastUpdateId: string;
 }
 
@@ -81,4 +82,9 @@ export interface Balance {
     available: string;
     locked: string;
   };
+}
+
+export interface LoginResponse {
+  token: string;
+  user: { id: string; email: string };
 }

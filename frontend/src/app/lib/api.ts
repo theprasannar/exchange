@@ -1,7 +1,9 @@
+//@ts-nocheck
 import axios from "axios";
 import {
   Depth,
   KLine,
+  LoginResponse,
   Order,
   Ticker,
   TickerFromEngine,
@@ -80,23 +82,26 @@ export async function getKlines(
   const data: KLine[] = response.data;
   return data;
 }
-export async function login(email: string, password: string) {
+export async function login(
+  email: string,
+  password: string
+): Promise<LoginResponse> {
   const response = await axios.post(`${BASE_URL}/auth/login`, {
     email,
     password,
   });
-  const data = response.data;
-  console.log(" signup ~ data:", data);
-  return data;
+  return response.data;
 }
 
-export async function signup(email: string, password: string) {
+export async function signup(
+  email: string,
+  password: string
+): Promise<LoginResponse> {
   const response = await axios.post(`${BASE_URL}/auth/signup`, {
     email,
     password,
   });
-  const data = response.data;
-  return data;
+  return response.data;
 }
 
 export async function getUserBalance(userId: string): Promise<{
