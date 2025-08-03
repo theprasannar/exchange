@@ -11,7 +11,9 @@ import {
 } from "../types/types";
 import { CreateOrder, CreateOrderResponse } from "../types/swap";
 
-const BASE_URL = "http://localhost:4000/api/v1";
+const BASE_URL = process.env.NEXT_PUBLIC_API_URL
+  ? process.env.NEXT_PUBLIC_API_URL
+  : "http://localhost:4000/api/v1";
 
 export async function getTicker(market: string): Promise<TickerFromEngine> {
   const response = await axios.get(`${BASE_URL}/ticker/${market}`);

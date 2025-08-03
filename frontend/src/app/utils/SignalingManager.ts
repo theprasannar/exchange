@@ -1,7 +1,8 @@
 import { updateDepth } from "../store/depthSlice";
 import store from "../store/store";
 
-export const BASE_URL = "http://localhost:4001";
+// export const BASE_URL = "http://localhost:4001";
+const WS_HOST = process.env.NEXT_PUBLIC_WS_URL ?? "ws://localhost:4001";
 
 export class SignalingManager {
   private ws: WebSocket;
@@ -12,7 +13,7 @@ export class SignalingManager {
   private callbacks: { [type: string]: any[] } = {};
 
   private constructor(signalingServerUrl?: string) {
-    this.ws = new WebSocket(signalingServerUrl || BASE_URL);
+    this.ws = new WebSocket(signalingServerUrl || WS_HOST);
     this.bufferedMessages = [];
     this.id = 1;
     this.init();
