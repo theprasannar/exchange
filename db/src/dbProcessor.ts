@@ -32,16 +32,16 @@ function isUnique(e: unknown): boolean {
 // ---------------------------------------------------------------------------
 
 async function safeProcess(event: Event): Promise<void> {
+  const eventId = event.id;
   await prisma.$transaction(
     async (tx: Prisma.TransactionClient) => {
       await processEventWithTx(event, tx);
 
       // mark processed (idempotent safeguard)
       //@ts-ignore
-      await tx.processedEvent.upsert({
-        where: { id: event.id },
-        update: {},
-        create: { id: event.id },
+      await tx.processedEvent.createMany({
+        data: [{ id: eventId }],
+        skipDuplicates: true, // <- Postgres "ON CONFLICT DO NOTHING"
       });
     },
     { isolationLevel: "Serializable" }
@@ -58,7 +58,7 @@ async function processEventWithTx(
 ): Promise<void> {
   switch (event.type) {
     case "ORDER_CREATE":
-      await processOrderCreate(event.data, tx);
+      await processOrderCreate(event.data, tx, event.id);
       break;
     case "DEPOSIT":
       await processDeposit(event.data, tx);
@@ -108,12 +108,13 @@ async function processEventWithTx(
 
 async function processOrderCreate(
   d: any,
-  tx: Prisma.TransactionClient
+  tx: Prisma.TransactionClient,
+  eventId: string
 ): Promise<void> {
   try {
     await tx.order.create({
       data: {
-        eventId: d.eventId ?? d.id, // UNIQUE
+        eventId: eventId, // UNIQUE
         id: d.orderId,
         userId: d.userId,
         market: d.market,
