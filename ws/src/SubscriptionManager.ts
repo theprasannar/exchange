@@ -21,7 +21,7 @@ export class SubscriptionManager {
   }
 
   public subscribe(userId: string, subscription: string) {
-    if (this.subscriptions.get(userId)?.includes(userId)) {
+    if (this.subscriptions.get(userId)?.includes(subscription)) {
       return;
     }
     this.subscriptions.set(
@@ -35,6 +35,7 @@ export class SubscriptionManager {
 
     if (this.reverseSubscriptions.get(subscription)?.length === 1) {
       this.redisClient.subscribe(subscription, (message, channel) =>
+        //for this Redis subscription (e.g., depth@BTC_USDC), call my handler every time a message is published.
         this.redisCallBackHandler(message, channel)
       );
     }
