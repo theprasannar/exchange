@@ -81,6 +81,9 @@ async function processEventWithTx(
     case "BALANCE_UNLOCK":
       await processBalanceUnlock(event.data, tx);
       break;
+    case "ORDER_CANCEL":
+      await processOrderCancel(event.data, tx);
+      break;
     case "BALANCE_MISMATCH":
       //@ts-ignore
       await tx.balanceMismatch.create({
@@ -100,6 +103,17 @@ async function processEventWithTx(
     default:
       console.warn("DB‑Processor: Unknown event type", event.type);
   }
+}
+
+async function processOrderCancel(
+  d: any,
+  tx: Prisma.TransactionClient
+): Promise<void> {
+  await tx.order.update({
+    where: { id: d.orderId },
+    data: { status: "CANCELLED" },
+  });
+  console.log("DB‑Processor: order cancelled", d.orderId);
 }
 
 // ---------------------------------------------------------------------------
@@ -185,20 +199,21 @@ async function processOrderUpdate(
     return;
   }
 
-  const executed = BigInt(d.executedQty);
-  const quantity = d.quantity ? BigInt(d.quantity) : existing.quantity;
+  const delta = BigInt(d.executedQty);
+  const newFilled = existing.filled + delta;
 
   const status =
-    executed === 0n
+    newFilled === 0n
       ? "PENDING"
-      : executed === quantity
+      : newFilled === existing.quantity
       ? "FILLED"
       : "PARTIALLY_FILLED";
 
   await tx.order.update({
     where: { id: d.orderId },
-    data: { filled: executed, status },
+    data: { filled: newFilled, status },
   });
+
   console.log("DB‑Processor: order updated", d.orderId);
 }
 
@@ -254,21 +269,16 @@ async function processBalanceUnlock(d: any, tx: Prisma.TransactionClient) {
   });
 }
 
-// ---------------------------------------------------------------------------
-// Dead‑letter helper
-// ---------------------------------------------------------------------------
-
-async function pushToDeadLetterQueue(event: Event): Promise<void> {
-  const r = createClient();
-  await r.connect();
-  await r.lPush("dead_letter_queue", JSON.stringify(event));
-  await r.disconnect();
-  console.error("DB‑Processor: event sent to DLQ", event.id);
+async function pushToDeadLetterQueue(
+  client: ReturnType<typeof createClient>,
+  stream: string,
+  msgId: string,
+  rawJson: string
+): Promise<void> {
+  // Use a stream for DLQ to keep IDs & timestamps (can be a list if you prefer)
+  await client.xAdd("dead:ledger", "*", { stream, id: msgId, json: rawJson });
+  console.error("DB-Processor: sent to DLQ", stream, msgId);
 }
-
-// ---------------------------------------------------------------------------
-// Stream consumer (events + sidefx)
-// ---------------------------------------------------------------------------
 
 async function consumeStreams(): Promise<void> {
   const url = process.env.REDIS_URL || "redis://localhost:6379";
@@ -276,19 +286,61 @@ async function consumeStreams(): Promise<void> {
   await client.connect();
 
   const GROUP = "ledger-writer";
-  const CONSUMER = "lw-" + Math.random().toString(36).slice(2, 7);
+  const CONSUMER = process.env.DBW_CONSUMER ?? "lw-1";
   const STREAMS = ["events", "sidefx"];
+  const MAX_ATTEMPTS = 5;
 
+  // Ensure groups exist
   for (const s of STREAMS) {
     try {
       await client.xGroupCreate(s, GROUP, "0", { MKSTREAM: true });
     } catch (e: any) {
-      if (!e.message.includes("BUSYGROUP")) throw e;
+      if (!String(e.message).includes("BUSYGROUP")) throw e;
     }
   }
 
-  console.log(`DB‑Processor ${CONSUMER} listening…`);
+  // -------- 1) Drain pending for THIS consumer (id: "0") --------
+  for (const s of STREAMS) {
+    while (true) {
+      const resp = await client.xReadGroup(
+        GROUP,
+        CONSUMER,
+        [{ key: s, id: "0" }],
+        { COUNT: 100, BLOCK: 0 }
+      );
+      if (!resp || resp[0].messages.length === 0) break;
 
+      for (const msg of resp[0].messages) {
+        const rawJson = String((msg.message as any).json ?? "{}");
+        try {
+          const evt: Event = JSON.parse(rawJson);
+          evt.id ||= msg.id;
+          await safeProcess(evt); // ← write to DB
+          await client.xAck(s, GROUP, msg.id); // ← ACK on success
+        } catch (err: any) {
+          // Idempotency: treat unique violation as success
+          if (
+            String(err.code) === "P2002" ||
+            /unique/i.test(String(err.message))
+          ) {
+            await client.xAck(s, GROUP, msg.id);
+            continue;
+          }
+          // Count attempts and DLQ if exceeded
+          const key = `attempts:${s}`;
+          const attempts = await client.hIncrBy(key, msg.id, 1);
+          if (attempts >= MAX_ATTEMPTS) {
+            await pushToDeadLetterQueue(client, s, msg.id, rawJson);
+            await client.xAck(s, GROUP, msg.id); // stop retrying
+          } // else: leave un-ACKed to retry on next start
+        }
+      }
+    }
+  }
+
+  console.log(`DB-Processor ${CONSUMER} live…`);
+
+  // -------- 2) Live loop (new messages: id: ">") --------
   while (true) {
     const pairs = STREAMS.map((k) => ({ key: k, id: ">" }));
     const resp = await client.xReadGroup(GROUP, CONSUMER, pairs, {
@@ -299,15 +351,27 @@ async function consumeStreams(): Promise<void> {
 
     for (const stream of resp) {
       for (const msg of stream.messages) {
+        const rawJson = String((msg.message as any).json ?? "{}");
         try {
-          const evt: Event = JSON.parse(msg.message.json as string);
+          const evt: Event = JSON.parse(rawJson);
           evt.id ||= msg.id;
           await safeProcess(evt);
           await client.xAck(stream.name, GROUP, msg.id);
-        } catch (err) {
-          console.error("DB‑Processor fail", stream.name, msg.id, err);
-          // after 5 retries push to DLQ (pseudo‑code)
-          // await pushToDeadLetterQueue(evt);
+        } catch (err: any) {
+          if (
+            String(err.code) === "P2002" ||
+            /unique/i.test(String(err.message))
+          ) {
+            await client.xAck(stream.name, GROUP, msg.id);
+            continue;
+          }
+          const key = `attempts:${stream.name}`;
+          const attempts = await client.hIncrBy(key, msg.id, 1);
+          if (attempts >= MAX_ATTEMPTS) {
+            await pushToDeadLetterQueue(client, stream.name, msg.id, rawJson);
+            await client.xAck(stream.name, GROUP, msg.id);
+          }
+          // else: leave un-ACKed; will be picked up on next restart's drain
         }
       }
     }

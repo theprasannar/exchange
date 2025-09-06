@@ -59,11 +59,6 @@ export class RedisManager {
     this.publisherClient.publish(clientId, JSON.stringify(message));
   }
 
-  public async pushMessage(message: DbMessage) {
-    await this.ensureReady(); // *** NEW ***
-    this.publisherClient.lPush("db_processor", JSON.stringify(message));
-  }
-
   public async xAck(
     stream: string,
     group: string,

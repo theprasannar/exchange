@@ -54,6 +54,13 @@ interface OrderbookSnapshot {
   updatedAt: Date;
 }
 
+function splitBookmark(bookmark?: string): { stream: string; id: string } {
+  if (!bookmark || bookmark === "0-0") return { stream: "events", id: "0-0" };
+  const i = bookmark.indexOf(":");
+  if (i === -1) return { stream: "events", id: bookmark };
+  return { stream: bookmark.slice(0, i), id: bookmark.slice(i + 1) };
+}
+
 /**
  * Engine responsibilities:
  * 1) Load user balances from DB on startup
@@ -251,110 +258,39 @@ export class Engine {
     }
   }
 
-  // async loadEventsFromRedis(snapshotTimestamp: number) {
-  //   try {
-  //     const minScore = snapshotTimestamp ? `(${snapshotTimestamp}` : "0";
-  //     const eventsJson = await RedisManager.getInstance().getZRangeByScore(
-  //       "event_store",
-  //       minScore,
-  //       "+inf"
-  //     );
-  //     const events = eventsJson.map((json) => JSON.parse(json));
-  //     events.sort((a, b) => a.timestamp - b.timestamp);
-  //     console.log(`Engine: Replaying ${events.length} events from Redis`);
-  //     for (const event of events) {
-  //       this.applyEvents(event);
-  //     }
-  //   } catch (error) {
-  //     console.log(`Engine: Error loading events from Redis`, error);
-  //   }
-  // }
-
-  // private async loadEventsFromStream(startId: string) {
-  //   const manager = RedisManager.getInstance();
-  //   const GROUP = "engine-replay";
-  //   const CONSUMER = "replay-" + Math.random().toString(36).slice(2, 7);
-
-  //   // create consumer-group if needed
-  //   try {
-  //     await manager.xGroupCreate({
-  //       key: "events",
-  //       group: GROUP,
-  //       id: "0",
-  //       MKSTREAM: true,
-  //     });
-  //   } catch (e: any) {
-  //     if (!e.message.includes("BUSYGROUP")) throw e;
-  //   }
-
-  //   let cursor = startId;
-  //   while (true) {
-  //     const resp = await manager.xReadGroup(
-  //       GROUP,
-  //       CONSUMER,
-  //       { key: "events", id: cursor },
-  //       { COUNT: 100, BLOCK: 0 }
-  //     );
-  //     if (!resp) break;
-  //     for (const stream of resp) {
-  //       for (const msg of stream.messages) {
-  //         const ev: Event = JSON.parse(msg.message.json as string);
-  //         this.applyEvents(ev);
-  //         cursor = msg.id;
-  //       }
-  //     }
-  //   }
-  // }
-
-  private async loadEventsFromStream(startId: string) {
+  private async loadEventsFromStream(bookmark: string) {
     const rm = RedisManager.getInstance();
-    const GROUP = "engine-replay";
-    const CONSUMER = `engine-${crypto.randomUUID().slice(0, 6)}`;
 
-    // …consumer-group creation…
+    // bookmark looks like "events:1700000-0" → split it
+    const { stream, id } = splitBookmark(bookmark);
 
-    // 2) FIRST: drain any *pending* messages (un-acked from last run)
+    // For XREAD, pass the last-seen id; Redis returns entries strictly AFTER it
+    let cursor = id || "0-0";
+
     while (true) {
-      const pendingResp = await rm.xReadGroup(
-        GROUP,
-        CONSUMER,
-        { key: "events", id: startId }, // start at last snapshot ID
-        { COUNT: 100, BLOCK: 5000 }
-      );
-      if (!pendingResp || pendingResp[0].messages.length === 0) break;
-      for (const msg of pendingResp[0].messages) {
-        const ev = JSON.parse(msg.message.json);
-        ev.id ??= msg.id;
-        try {
-          await this.applyEvents(ev);
-          await rm.xAck("events", GROUP, msg.id);
-        } catch (err) {
-          console.error("Failed to apply pending event", ev.id, err);
-          // leave un-acked to retry later
-        }
-      }
-    }
+      // Your RedisManager.xRead signature: (streams[], { COUNT?, BLOCK? })
+      // Omit BLOCK to make it non-blocking for history scan
+      const resp = await rm.xRead([{ key: stream, id: cursor }], {
+        COUNT: 500,
+      });
 
-    // 3) NOW consume only *new* events
-    while (true) {
-      const resp = await rm.xReadGroup(
-        GROUP,
-        CONSUMER,
-        { key: "events", id: ">" },
-        { COUNT: 100, BLOCK: 5000 }
-      );
-      if (!resp) continue;
+      if (!resp || resp.length === 0 || resp[0].messages.length === 0) break;
+
       for (const msg of resp[0].messages) {
-        const ev = JSON.parse(msg.message.json);
-        ev.id ??= msg.id;
-        try {
-          await this.applyEvents(ev);
-          await rm.xAck("events", GROUP, msg.id);
-        } catch (err) {
-          console.error("Failed to apply new event", ev.id, err);
-          // un-acked ⇒ will be retried on next startup
-        }
+        const payload = msg.message?.json ?? JSON.stringify(msg.message);
+        const ev = JSON.parse(payload);
+        // Normalize id as "stream:id" so it's consistent with snapshots
+        if (!ev.id) ev.id = `${stream}:${msg.id}`;
+
+        // Your existing idempotent applier
+        await this.applyEvents(ev);
+
+        // Advance cursor to this id; next XREAD returns strictly after it
+        cursor = msg.id;
       }
+
+      // Short batch → likely caught up
+      if (resp[0].messages.length < 500) break;
     }
   }
 
@@ -400,7 +336,7 @@ export class Engine {
         const ord = ob.findOrder(d.orderId);
         if (!ord) break;
 
-        ord.filled = BigInt(d.executedQty);
+        ord.filled += BigInt(d.executedQty);
 
         // remove only when fully filled (or if you have other criteria)
         if (ord.filled === ord.quantity) {
@@ -580,7 +516,7 @@ export class Engine {
       case CANCEL_ORDER:
         try {
           const { orderId, market, userId } = message.data;
-          this.cancelOrder(orderId, market, clientId, userId);
+          await this.cancelOrder(orderId, market, clientId, userId);
         } catch (error) {
           console.log("Error while cancelling order");
           console.log(error);
@@ -926,7 +862,6 @@ export class Engine {
 
     this.publishOpenOrdersSnapshot(orderbook, [...touchedUsers]);
 
-    console.log("fills", fills);
     // 4) Update balances in memory for taker & maker(s)
     this.updateBalance(userId, baseAsset, quoteAsset, side, fills);
 
@@ -1153,16 +1088,17 @@ export class Engine {
     clientId: string,
     userId: string
   ) {
+    // Event to cancel for DB processor
     await EventStore.publishEvent({
       type: "ORDER_CANCEL",
       data: { orderId, market },
       timestamp: Date.now(),
     });
+
     const cancelOrderbook = this.orderBooks.find((o) => o.ticker() === market);
     if (!cancelOrderbook) {
       throw new Error("No orderbook found");
     }
-
     const [baseAsset, quoteAsset] = market.split("_");
     const order =
       cancelOrderbook.asks.find((o) => o.orderId === orderId) ||
@@ -1362,7 +1298,7 @@ export class Engine {
         },
         timestamp: Date.now(),
       };
-      EventStore.publishEvent(tradeEvent);
+      await EventStore.publishEvent(tradeEvent);
     }
   }
 

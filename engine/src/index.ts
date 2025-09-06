@@ -41,7 +41,28 @@ async function main(): Promise<void> {
       if (!e.message.includes("BUSYGROUP")) throw e;
     });
 
-  console.log("🚀  Consumer‑group ready, entering main loop");
+  console.log("🔁 Draining pending (if any) for consumer:", CONSUMER_NAME);
+
+  while (true) {
+    const resp = await redisClient.xReadGroup(
+      GROUP_NAME,
+      CONSUMER_NAME,
+      [{ key: ORDERS_STREAM, id: "0" }],
+      { COUNT: 100, BLOCK: 0 }
+    );
+    if (!resp || resp[0].messages.length === 0) break;
+
+    for (const msg of resp[0].messages) {
+      const entryId = msg.id;
+      try {
+        const payload = JSON.parse(msg.message.json);
+        await engine.process(payload); // <-- await so failures are caught
+        await redisClient.xAck(ORDERS_STREAM, GROUP_NAME, entryId);
+      } catch (err) {
+        console.error("Failed while draining pending", entryId, err);
+      }
+    }
+  }
 
   while (true) {
     const response = await redisClient.xReadGroup(
@@ -62,17 +83,11 @@ async function main(): Promise<void> {
 
         try {
           const payload = JSON.parse(fields.json);
-          const { clientId } = payload;
 
-          const result = engine.process(payload);
-          if (result) {
-            await redisClient.publish(clientId, JSON.stringify(result));
-          }
-
+          await engine.process(payload);
           await redisClient.xAck(ORDERS_STREAM, GROUP_NAME, entryId);
         } catch (err) {
           console.error("❌  Failed to handle entry", entryId, err);
-          // un‑acked → will replay after restart
         }
       }
     }

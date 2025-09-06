@@ -13,7 +13,7 @@ export interface Event {
  * - Encapsulates publishing events to a durable message queue.
  */
 
-const SIDEFX = new Set(["TRADE_EXECUTED", "BALANCE_MISMATCH", "TICKER_UPDATE"]);
+const SIDEFX = new Set(["BALANCE_MISMATCH", "TICKER_UPDATE"]);
 
 export class EventStore {
   static async publishEvent(event: Event): Promise<string> {
