@@ -31,6 +31,31 @@ export const createOrderController = async (
       .json({ error: "Price is required for limit orders" });
   }
 
+  // --- Client-level idempotency (prevents browser retries / double-clicks) ---
+  const idempotencyKey = req.headers["x-idempotency-key"];
+  if (idempotencyKey && typeof idempotencyKey === "string") {
+    const cached = await RedisManager.getInstance().claimIdempotencyKey(idempotencyKey);
+    if (cached !== null) {
+      // Key already used — return cached response or 409
+      if (cached === "pending") {
+        // Previous request still in-flight
+        return res.status(409).json({
+          error: "Duplicate order",
+          message: "This order is already being processed",
+        });
+      }
+      try {
+        const cachedResponse = JSON.parse(cached);
+        return res.json(cachedResponse);
+      } catch {
+        return res.status(409).json({
+          error: "Duplicate order",
+          message: "This order has already been processed",
+        });
+      }
+    }
+  }
+
   try {
     const quantityAtomic = btcToAtomic(quantity);
     const priceAtomic =
@@ -50,22 +75,53 @@ export const createOrderController = async (
           postOnly,
         },
       },
-      0
+      15000 // 15 second timeout for order processing
     );
 
-    // Check if response indicates an error
-    //@ts-ignore
+    // Check for duplicate order response (engine deduplicates via Redis stream entry ID)
+    if (response.type === "ORDER_DUPLICATE") {
+      return res.status(409).json({
+        error: "Duplicate order",
+        message: "This order has already been processed",
+      });
+    }
+
+    // Check if response indicates an error — delete idempotency key so user can retry
     if (response.type === "ORDER_REJECTED") {
+      if (idempotencyKey && typeof idempotencyKey === "string") {
+        await RedisManager.getInstance().deleteIdempotencyKey(idempotencyKey);
+      }
       return res.status(400).json({
-        //@ts-ignore
         error: response.payload.reason || "Order rejected",
       });
     }
 
-    //@ts-ignore
+    // Cache the successful response for this idempotency key
+    if (idempotencyKey && typeof idempotencyKey === "string") {
+      await RedisManager.getInstance().setIdempotencyResponse(
+        idempotencyKey,
+        JSON.stringify(response.payload)
+      );
+    }
+
     res.json(response.payload);
   } catch (error) {
     console.error("Order creation error:", error);
+    
+    // Handle timeout specially - order may still be processing
+    // Keep the idempotency key alive ("pending") since the engine may still succeed
+    if (error instanceof Error && error.message.includes("Timed out")) {
+      return res.status(202).json({
+        status: "pending",
+        message: "Order submission timed out. The order may still be processing. Check order status.",
+      });
+    }
+
+    // For non-timeout errors, delete the idempotency key so the user can retry
+    if (idempotencyKey && typeof idempotencyKey === "string") {
+      await RedisManager.getInstance().deleteIdempotencyKey(idempotencyKey).catch(() => {});
+    }
+    
     res.status(500).json({
       error: error instanceof Error ? error.message : "Failed to create order",
     });
