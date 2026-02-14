@@ -17,6 +17,7 @@ export function SwapUI({ market }: { market: string }) {
   const [ioc, setIoc] = useState(false);
   const [postOnly, setPostOnly] = useState(false);
   const [balance, setBalance] = useState<Balance | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const lastPrice = useAppSelector((state) => state.ticker.lastPrice);
 
   const [baseAsset, quoteAsset] = market.split("_");
@@ -82,12 +83,19 @@ export function SwapUI({ market }: { market: string }) {
   }, [userId]);
 
   const handleCreateOrder = async () => {
+    if (isSubmitting) return; // prevent double-clicks
     if (!userId) return toast.error("Please login first");
     if (!quantity || (type === "limit" && !price)) {
       return toast.error("Please enter required fields");
     }
 
+    setIsSubmitting(true);
     const loadingToast = toast.loading("Creating order...");
+
+    // Generate a unique idempotency key for this order intent.
+    // If the network retries, the same key is sent → API deduplicates.
+    const idempotencyKey = crypto.randomUUID();
+
     try {
       const order = {
         market,
@@ -99,7 +107,7 @@ export function SwapUI({ market }: { market: string }) {
         ioc,
         postOnly,
       };
-      await createOrder(order);
+      await createOrder(order, idempotencyKey);
       toast.dismiss(loadingToast);
       toast.success("Order placed!");
       setQuantity("");
@@ -107,12 +115,18 @@ export function SwapUI({ market }: { market: string }) {
       setSlider(0);
     } catch (err: any) {
       toast.dismiss(loadingToast);
-      const errorMsg =
-        err?.response?.data?.error ||
-        err?.response?.data?.message ||
-        "Failed to create order";
-      toast.error(errorMsg);
+      if (err?.response?.status === 409) {
+        toast.error("Duplicate order — already submitted");
+      } else {
+        const errorMsg =
+          err?.response?.data?.error ||
+          err?.response?.data?.message ||
+          "Failed to create order";
+        toast.error(errorMsg);
+      }
       console.error("Order failed:", err);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -278,13 +292,18 @@ export function SwapUI({ market }: { market: string }) {
       {/* Submit Button */}
       <button
         onClick={handleCreateOrder}
+        disabled={isSubmitting}
         className={`w-full py-3 rounded-lg font-medium transition ${
           activeTab === "buy"
             ? "bg-green-600 hover:bg-green-500"
             : "bg-red-600 hover:bg-red-500"
-        } text-white`}
+        } text-white disabled:opacity-50 disabled:cursor-not-allowed`}
       >
-        {activeTab === "buy" ? `Buy ${baseAsset}` : `Sell ${baseAsset}`}
+        {isSubmitting
+          ? "Submitting..."
+          : activeTab === "buy"
+            ? `Buy ${baseAsset}`
+            : `Sell ${baseAsset}`}
       </button>
 
       {type == "limit" && (

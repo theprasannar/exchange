@@ -21,9 +21,14 @@ export async function getTicker(market: string): Promise<TickerFromEngine> {
 }
 
 export async function createOrder(
-  order: CreateOrder
+  order: CreateOrder,
+  idempotencyKey?: string
 ): Promise<CreateOrderResponse> {
-  const response = await axios.post(`${BASE_URL}/orders`, order);
+  const headers: Record<string, string> = {};
+  if (idempotencyKey) {
+    headers["X-Idempotency-Key"] = idempotencyKey;
+  }
+  const response = await axios.post(`${BASE_URL}/orders`, order, { headers });
   return response.data;
 }
 export async function getTickers(): Promise<Ticker[]> {

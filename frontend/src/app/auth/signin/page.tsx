@@ -24,9 +24,10 @@ export default function SigninPage() {
         setAuth(data.token, data.user.email, data.user.id);
         router.push("/home");
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      setError("Invalid email or password");
+      const errorMessage = err?.response?.data?.error || err?.response?.data?.message || "Invalid email or password";
+      setError(errorMessage);
     } finally {
       setIsLoading(false);
     }

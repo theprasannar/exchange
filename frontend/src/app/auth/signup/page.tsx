@@ -31,9 +31,10 @@ export default function SignupPage() {
         setAuth(data.token, data.user.email, data.user.id);
         router.push("/home");
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
-      setError("Signup failed. Try again.");
+      const errorMessage = err?.response?.data?.error || err?.response?.data?.message || "Signup failed. Try again.";
+      setError(errorMessage);
     } finally {
       setIsLoading(false);
     }
