@@ -19,15 +19,21 @@ export class UserManager {
     public addUser(ws : WebSocket) {
         let id = this.generateUniqueId();
         const user = new User(id, ws);
-        this.registerOnClose(ws , id);
+        this.registerOnClose(ws, id);
+        this.registerOnError(ws, id);
         this.users.set(id, user);
     }
 
     public registerOnClose(ws : WebSocket, id : string) {
         ws.on("close", () => {
             this.users.delete(id);
-        })
-        
+        });
+    }
+
+    public registerOnError(ws : WebSocket, id : string) {
+        ws.on("error", (err) => {
+            console.error(`WebSocket error for user ${id}:`, err.message);
+        });
     }
 
     public getUser(id: string) {
@@ -36,6 +42,10 @@ export class UserManager {
     
     public generateUniqueId() {
         return uid(32); 
+    }
+
+    public getUserCount(): number {
+        return this.users.size;
     }
 }
 
