@@ -18,7 +18,7 @@ model User {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  usdcBalance BigInt @default(1000000000000)
+  usdcBalance BigInt @default(1000000000)
   usdcLocked  BigInt @default(0)
   btcBalance  BigInt @default(5000000000)
   btcLocked   BigInt @default(0)
@@ -113,12 +113,13 @@ model Kline {
 }
 
 model OrderbookSnapshot {
-  id        String   @id @default(uuid())
-  eventId   String   @unique                 // <‑‑ added
-  market    String
-  streamId  String
-  snapshot  Json
-  createdAt DateTime @default(now())
+  id          String   @id @default(uuid())
+  eventId     String   @unique                 // <‑‑ added
+  market      String
+  streamId    String
+  lastEventId String   @default("0-0")         // Event stream position at snapshot time
+  snapshot    Json
+  createdAt   DateTime @default(now())
 
   @@index([market, createdAt])
 }
@@ -161,4 +162,18 @@ model ProcessedEvent {
 model EngineProcessedEvent {
   id        String   @id
   createdAt DateTime @default(now())
+}
+
+////////////////////  Dead Letter Queue  ////////////////////
+
+model PermanentFailure {
+  id        String   @id @default(uuid())
+  eventId   String   @unique
+  stream    String
+  payload   String   @db.Text
+  error     String
+  createdAt DateTime @default(now())
+  
+  @@index([createdAt])
+  @@index([stream])
 }

@@ -18,6 +18,7 @@ import { tickerAggregator } from "./tickerAggregator";
 import { initRealTimeKlineAggregator } from "./realTimeKline";
 import prisma from "@exchange/db";
 import { EventStore, Event } from "./EventStore";
+import { startHealthMonitoring } from "./streamHealth";
 
 // Just to avoid TS errors about crypto:
 import crypto from "crypto"; // Make sure you import or require 'crypto' if you're in Node
@@ -73,11 +74,33 @@ function splitBookmark(bookmark?: string): { stream: string; id: string } {
 export class Engine {
   private orderBooks: OrderBook[] = [];
   private balance: Map<string, UserBalance> = new Map();
-  // private processedEventIds: Set<string> = new Set(); // For idempotency
+  
+  // Ready state management - ensures no processing happens before recovery is complete
+  private readyPromise: Promise<void>;
+  private readyResolve!: () => void;
+  
+  // Idempotency tracking for order messages to prevent duplicate processing
+  private processedOrderMessages: Set<string> = new Set();
 
   constructor() {
-    this.initialize();
-    this.setupPeriodicTasks();
+    // Create a promise that will resolve when initialization is complete
+    this.readyPromise = new Promise((resolve) => {
+      this.readyResolve = resolve;
+    });
+    
+    this.initialize().then(() => {
+      this.readyResolve();
+      console.log("✅ Engine: Ready to process orders");
+      this.setupPeriodicTasks();
+    });
+  }
+
+  /**
+   * Wait for the engine to be fully initialized.
+   * Call this before processing any orders to ensure state is recovered.
+   */
+  public async waitUntilReady(): Promise<void> {
+    return this.readyPromise;
   }
 
   /**
@@ -89,9 +112,14 @@ export class Engine {
   private setupPeriodicTasks() {
     const SNAPSHOT_MS = Number(process.env.SNAPSHOT_MS ?? 5000); // default 5 s
     const RECONCILE_MS = Number(process.env.RECONCILE_MS ?? 60000); // default 60 s
+    const TRIM_MS = Number(process.env.TRIM_MS ?? 300000); // default 5 min
+    const HEALTH_CHECK_MS = Number(process.env.HEALTH_CHECK_MS ?? 60000); // default 1 min
 
     let lastRecon = 0; // timestamp of last reconcile
     let reconFails = 0; // consecutive failures
+
+    // Start health monitoring
+    startHealthMonitoring(HEALTH_CHECK_MS);
 
     setInterval(async () => {
       try {
@@ -122,6 +150,20 @@ export class Engine {
         console.error("⛔ periodicTasks loop error:", err);
       }
     }, SNAPSHOT_MS);
+
+    // Safe stream trimming - runs separately to avoid blocking snapshots
+    setInterval(async () => {
+      try {
+        const rm = RedisManager.getInstance();
+        const eventsTrimmed = await rm.safeTrim("events", 1_000_000);
+        const sidefxTrimmed = await rm.safeTrim("sidefx", 100_000);
+        if (eventsTrimmed > 0 || sidefxTrimmed > 0) {
+          console.log(`🧹 Stream trim: events=${eventsTrimmed}, sidefx=${sidefxTrimmed}`);
+        }
+      } catch (e) {
+        console.error("Stream trim failed:", e);
+      }
+    }, TRIM_MS);
   }
 
   getSupportedMarkers(): Array<{ base: string; quote: string }> {
@@ -163,14 +205,59 @@ export class Engine {
       }
     }
 
+    // 0) Load processed order message IDs for crash-safe idempotency
+    await this.loadProcessedOrderMessagesFromDB();
+
     // 1) Load user balances from database
-    this.loadAllBalancesFromDB();
+    await this.loadAllBalancesFromDB();
 
     // 2) Recover state from the last snapshot + replay events
     await this.recoverState();
 
     // 3) Start real-time Kline aggregator (if used)
     initRealTimeKlineAggregator();
+  }
+
+  /**
+   * Load recently processed message IDs from DB for crash-safe idempotency.
+   * This ensures that even after a crash, we won't reprocess messages that were
+   * already handled but not yet ACKed.
+   * 
+   * Covers all mutating operations: CREATE_ORDER, CANCEL_ORDER, ON_RAMP
+   */
+  async loadProcessedOrderMessagesFromDB() {
+    try {
+      // Load entries from last 24 hours for all mutating operation types
+      const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const processed = await prisma.engineProcessedEvent.findMany({
+        where: {
+          createdAt: { gte: cutoff },
+          // Match all mutating operation prefixes
+          OR: [
+            { id: { startsWith: `${CREATE_ORDER}:` } },
+            { id: { startsWith: `${CANCEL_ORDER}:` } },
+            { id: { startsWith: `${ON_RAMP}:` } },
+          ],
+        },
+        select: { id: true },
+      });
+
+      for (const { id } of processed) {
+        // Extract entryId by removing the "TYPE:" prefix
+        const colonIndex = id.indexOf(":");
+        if (colonIndex !== -1) {
+          const entryId = id.slice(colonIndex + 1);
+          this.processedOrderMessages.add(entryId);
+        }
+      }
+
+      console.log(
+        `Engine: Loaded ${this.processedOrderMessages.size} processed message IDs from DB`
+      );
+    } catch (e) {
+      console.error("Engine: Failed to load processed messages:", e);
+      // Continue anyway - worst case we might reject a duplicate
+    }
   }
 
   async loadAllBalancesFromDB() {
@@ -250,8 +337,14 @@ export class Engine {
         orderBook.lastTradeId = snap.lastTradeId;
         orderBook.currentPrice = BigInt(snap.currentPrice);
 
-        // now replay *after* that snapshot’s stream ID
-        await this.loadEventsFromStream(snapshotRecord.streamId);
+        // Use lastEventId if available (new format), otherwise fall back to streamId
+        // lastEventId is more accurate as it represents the event stream position
+        // at the time the snapshot was taken
+        const replayFrom = (snapshotRecord as any).lastEventId || snapshotRecord.streamId;
+        console.log(`Engine: Replaying events from ${replayFrom} for ${market}`);
+        
+        // now replay *after* that snapshot's stream ID
+        await this.loadEventsFromStream(replayFrom);
       } catch (err) {
         console.error(`Engine: failed to recover ${market}`, err);
       }
@@ -430,32 +523,85 @@ export class Engine {
     return crypto.randomUUID();
   }
 
-  // async persistBalanceUpdate(userId: string) {
-  //   const userBalance = this.balance.get(userId);
-  //   if (!userBalance) {
-  //     console.error(`No balance found for user ${userId}`);
-  //     return;
-  //   }
-  //   // Update only USDC and BTC for demonstration
-  //   await prisma.user.update({
-  //     where: { id: userId },
-  //     data: {
-  //       usdcBalance: userBalance.USDC ? userBalance.USDC.available : 0n,
-  //       btcBalance: userBalance.BTC ? userBalance.BTC.available : 0n,
-  //     },
-  //   });
-  // }
+  /**
+   * Mark a message as processed for idempotency.
+   * This MUST complete before returning to ensure crash-safe idempotency.
+   * 
+   * @param messageType - The type of message (CREATE_ORDER, CANCEL_ORDER, ON_RAMP)
+   * @param entryId - The Redis stream entry ID
+   */
+  private async markMessageProcessed(messageType: string, entryId?: string): Promise<void> {
+    if (!entryId) return;
+    
+    const idempotencyKey = `${messageType}:${entryId}`;
+    
+    // Add to in-memory set
+    this.processedOrderMessages.add(entryId);
+    
+    // Persist to DB for crash recovery - await to ensure durability
+    try {
+      await prisma.engineProcessedEvent.create({
+        data: { id: idempotencyKey },
+      });
+    } catch (e) {
+      // Ignore duplicate key errors (already processed in a previous attempt)
+    }
+    
+    // Limit in-memory set size to prevent memory leaks
+    if (this.processedOrderMessages.size > 100000) {
+      // Remove oldest entries (first 10000)
+      const entries = Array.from(this.processedOrderMessages);
+      entries.slice(0, 10000).forEach(id => this.processedOrderMessages.delete(id));
+    }
+  }
 
   /**
    * Main router for messages from the API/WebSocket.
+   * Includes idempotency check using stream entry ID to prevent duplicate order processing.
    */
   public async process({
     message,
     clientId,
+    entryId,
   }: {
     message: MessageFromAPI;
     clientId: string;
+    entryId?: string; // Redis stream entry ID for idempotency
   }) {
+    // Define which message types are mutating operations that need idempotency
+    const MUTATING_OPERATIONS = [CREATE_ORDER, CANCEL_ORDER, ON_RAMP];
+    const isMutatingOperation = MUTATING_OPERATIONS.includes(message.type);
+
+    // Idempotency check for ALL mutating operations - prevents duplicates on retry
+    if (entryId && isMutatingOperation) {
+      const idempotencyKey = `${message.type}:${entryId}`;
+      
+      // First check in-memory (fast path)
+      if (this.processedOrderMessages.has(entryId)) {
+        console.log(`⚠️ Skipping duplicate ${message.type} (in-memory): ${entryId}`);
+        RedisManager.getInstance().sendToApi(clientId, {
+          type: "ORDER_DUPLICATE",
+          payload: { message: "Message already processed", entryId, messageType: message.type },
+        });
+        return;
+      }
+      
+      // Also check DB in case engine restarted and in-memory set is incomplete
+      const alreadyProcessed = await prisma.engineProcessedEvent.findUnique({
+        where: { id: idempotencyKey },
+      });
+      if (alreadyProcessed) {
+        console.log(`⚠️ Skipping duplicate ${message.type} (from DB): ${entryId}`);
+        // Add to in-memory set for faster future lookups
+        this.processedOrderMessages.add(entryId);
+        RedisManager.getInstance().sendToApi(clientId, {
+          type: "ORDER_DUPLICATE",
+          payload: { message: "Message already processed", entryId, messageType: message.type },
+        });
+        return;
+      }
+    }
+
     switch (message.type) {
       case CREATE_ORDER:
         try {
@@ -479,6 +625,10 @@ export class Engine {
             ioc,
             postOnly
           );
+
+          // Mark as processed AFTER successful order creation
+          // This MUST complete before we return/ACK to ensure crash-safe idempotency
+          await this.markMessageProcessed(CREATE_ORDER, entryId);
 
           // Respond success
           RedisManager.getInstance().sendToApi(clientId, {
@@ -517,6 +667,9 @@ export class Engine {
         try {
           const { orderId, market, userId } = message.data;
           await this.cancelOrder(orderId, market, clientId, userId);
+          
+          // Mark as processed for idempotency
+          await this.markMessageProcessed(CANCEL_ORDER, entryId);
         } catch (error) {
           console.log("Error while cancelling order");
           console.log(error);
@@ -566,6 +719,9 @@ export class Engine {
           const userId = message.data.userId;
           const amount = BigInt(message.data.amount);
           await this.onRamp(userId, amount);
+
+          // Mark as processed for idempotency - CRITICAL for deposits!
+          await this.markMessageProcessed(ON_RAMP, entryId);
 
           // Send success response back to API
           RedisManager.getInstance().sendToApi(clientId, {
@@ -781,7 +937,8 @@ export class Engine {
         userId,
         price,
         side,
-        quantity
+        quantity,
+        localOrderId
       );
     } else {
       // Market order logic:
@@ -798,16 +955,31 @@ export class Engine {
           throw new Error(`Insufficient ${quoteAsset} balance`);
         }
         // Lock only the estimated cost, not the entire available balance.
-        await this.emitBalanceLock(userId, quoteAsset, estimatedCost);
+        await this.emitBalanceLock(userId, quoteAsset, estimatedCost, localOrderId);
       } else {
-        // Market sell => lock exactly the baseAsset
+
+          // Market sell => check liquidity first (must have bids to fill against)
+        const bidsCopy = [...orderbook.bids].sort((a, b) =>
+          a.price > b.price ? -1 : 1
+        );
+        let availableBidQty = 0n;
+        for (const bid of bidsCopy) {
+          availableBidQty += bid.quantity - bid.filled;
+        }
+        if (availableBidQty < quantity) {
+          throw new Error(
+            `Not enough liquidity available to fill the market sell order`
+          );
+        }
+        // Market sell => lock the baseAsset (allow even with empty orderbook for market making)
         await this.checkAndLockFunds(
           baseAsset,
           quoteAsset,
           userId,
           0n,
           side,
-          quantity
+          quantity,
+          localOrderId
         );
       }
     }
@@ -851,7 +1023,7 @@ export class Engine {
             : unfilledQty; // base refund
 
         const asset = side === "buy" ? quoteAsset : baseAsset;
-        await this.emitBalanceUnlock(userId, asset, refund);
+        await this.emitBalanceUnlock(userId, asset, refund, `ioc:${localOrderId}`);
       }
     }
 
@@ -875,7 +1047,7 @@ export class Engine {
       const diff = worstCase - costExecuted;
       if (diff > 0n) {
         // Treat refund as “unlock the leftover quote”
-        await this.emitBalanceUnlock(userId, quoteAsset, diff);
+        await this.emitBalanceUnlock(userId, quoteAsset, diff, `refund:${localOrderId}`);
       }
     }
     // -------------------------------------------------------------
@@ -890,7 +1062,7 @@ export class Engine {
     // }
 
     // 6) Publish trade & order updates to DB (via event store)
-    this.createDbTrades(fills, market, userId);
+    await this.createDbTrades(fills, market, userId, side);
     this.updateDbOrders(order, executedQty, fills, market);
 
     // 7) Publish real-time websockets for depth/trades/ticker
@@ -902,7 +1074,7 @@ export class Engine {
       this.publishWsDepthUpdates(fills, price, side, market);
     }
     // this.publishOpenOrders(order, userId, executedQty, fills);
-    this.publishWsTrades(fills, market, userId);
+    this.publishWsTrades(fills, market, userId, side);
     this.updateAndPublishTicker(fills, market);
 
     return { executedQty, fills, orderId: localOrderId };
@@ -928,11 +1100,13 @@ export class Engine {
     }
     if (remainingQuantity > 0n) {
       throw new Error(
-        `Not enough liquidity available to fill the market order`
+        `Not enough liquidity available to fill the market buy order`
       );
     }
     return estimateCost;
   }
+
+
 
   /**
    * Lock the user's funds in memory
@@ -943,7 +1117,8 @@ export class Engine {
     userId: string,
     price: bigint,
     side: "buy" | "sell",
-    quantity: bigint
+    quantity: bigint,
+    orderId: string
   ) {
     const userBalances = this.balance.get(userId);
     if (!userBalances) {
@@ -954,20 +1129,22 @@ export class Engine {
       if (userBalances[quoteAsset].available < totalCost) {
         throw new Error(`Insufficient ${quoteAsset} balance`);
       }
-      await this.emitBalanceLock(userId, quoteAsset, totalCost);
+      await this.emitBalanceLock(userId, quoteAsset, totalCost, orderId);
     } else {
       // side = sell
       if (userBalances[baseAsset].available < quantity) {
         throw new Error(`Insufficient ${baseAsset} balance`);
       }
-      await this.emitBalanceLock(userId, baseAsset, quantity);
+      await this.emitBalanceLock(userId, baseAsset, quantity, orderId);
     }
   }
 
-  private async emitBalanceLock(userId: string, asset: string, amount: bigint) {
+  private async emitBalanceLock(userId: string, asset: string, amount: bigint, orderId?: string) {
     if (amount == 0n) return;
 
     const evt: Event = {
+      // Deterministic ID for idempotent replay
+      ...(orderId ? { id: `BALANCE_LOCK:${orderId}` } : {}),
       type: "BALANCE_LOCK",
       data: { userId, asset, amount: amount.toString() },
       timestamp: Date.now(),
@@ -989,11 +1166,14 @@ export class Engine {
   private async emitBalanceUnlock(
     userId: string,
     asset: string,
-    amount: bigint
+    amount: bigint,
+    unlockKey?: string
   ): Promise<void> {
     if (amount === 0n) return;
 
     const evt: Event = {
+      // Deterministic ID for idempotent replay
+      ...(unlockKey ? { id: `BALANCE_UNLOCK:${unlockKey}` } : {}),
       type: "BALANCE_UNLOCK",
       data: { userId, asset, amount: amount.toString() },
       timestamp: Date.now(),
@@ -1017,13 +1197,18 @@ export class Engine {
     baseAsset: string, // e.g. "BTC"
     quoteAsset: string, // e.g. "USDC"
     price: bigint, // match price
-    qty: bigint // executed base qty
+    qty: bigint, // executed base qty
+    tradeId: number // deterministic key for idempotency
   ): Promise<void> {
     if (qty === 0n) return;
 
     const quote = mulDiv(price, qty, BTC_SCALE.toString()); // cost = p*q
 
     const evt: Event = {
+      // Deterministic ID so the DB processor deduplicates on engine replay.
+      // Without this, a crash between "publish" and "ACK" causes the engine
+      // to re-emit TRADE_FILL with a new stream ID, double-decrementing locked balances.
+      id: `TRADE_FILL:${tradeId}`,
       type: "TRADE_FILL",
       data: {
         buyUserId,
@@ -1119,7 +1304,7 @@ export class Engine {
       );
       const userBalances = this.balance.get(order.userId);
       if (!userBalances) throw new Error(`User ${order.userId} not found`);
-      await this.emitBalanceUnlock(order.userId, quoteAsset, leftoverLocked);
+      await this.emitBalanceUnlock(order.userId, quoteAsset, leftoverLocked, `cancel:${orderId}`);
       this.sendUpdatedDepthAt(price.toString(), market);
     } else {
       // side = sell
@@ -1129,7 +1314,7 @@ export class Engine {
       const leftoverLocked = order.quantity - order.filled;
       const userBalances = this.balance.get(order.userId);
       if (!userBalances) throw new Error(`User ${order.userId} not found`);
-      await this.emitBalanceUnlock(order.userId, baseAsset, leftoverLocked);
+      await this.emitBalanceUnlock(order.userId, baseAsset, leftoverLocked, `cancel:${orderId}`);
       this.sendUpdatedDepthAt(price.toString(), market);
     }
 
@@ -1198,7 +1383,8 @@ export class Engine {
           baseAsset,
           quoteAsset,
           f.price,
-          f.quantity
+          f.quantity,
+          f.tradeId
         );
       } else {
         // taker = seller
@@ -1208,7 +1394,8 @@ export class Engine {
           baseAsset,
           quoteAsset,
           f.price,
-          f.quantity
+          f.quantity,
+          f.tradeId
         );
       }
     }
@@ -1273,9 +1460,11 @@ export class Engine {
     });
   }
 
-  createDbTrades(fills: Fill[], market: string, userId: string) {
+  async createDbTrades(fills: Fill[], market: string, userId: string, takerSide: "buy" | "sell") {
     for (const fill of fills) {
-      const isBuyerMaker = fill.makerUserId === userId;
+      // If taker is selling, maker was buying (isBuyerMaker = true)
+      // If taker is buying, maker was selling (isBuyerMaker = false)
+      const isBuyerMaker = takerSide === "sell";
       const tradeEvent: Event = {
         id: fill.tradeId.toString(),
         type: "TRADE_EXECUTED",
@@ -1393,6 +1582,7 @@ export class Engine {
 
   /**
    * Snapshot the entire orderbook for a single market and publish an event for DB.
+   * Stores the last event stream position to ensure consistent recovery.
    */
   public async snapshotOrderbook(market: string) {
     const ob = this.orderBooks.find((o) => o.ticker() === market);
@@ -1402,15 +1592,31 @@ export class Engine {
       typeof v === "bigint" ? v.toString() : v
     );
 
+    // Get the current event stream position BEFORE writing snapshot event
+    // This ensures we know exactly which events are included in this snapshot
+    let lastEventId = "0-0";
+    try {
+      const streamInfo = await RedisManager.getInstance().xInfoStream("events");
+      lastEventId = streamInfo?.lastGeneratedId || "0-0";
+    } catch (e) {
+      // Stream might not exist yet, use default
+    }
+
     // write a tiny audit event just to bookmark the position
     const streamId = await EventStore.publishEvent({
       type: "ORDERBOOK_SNAPSHOT", // still useful for tracing
-      data: { market }, // no giant blob
+      data: { market, lastEventId }, // include the event stream position
       timestamp: Date.now(),
     });
 
     await prisma.orderbookSnapshot.create({
-      data: { market, snapshot: json, streamId, eventId: streamId },
+      data: { 
+        market, 
+        snapshot: json, 
+        streamId, 
+        eventId: streamId,
+        lastEventId, // Store reference to which events this snapshot includes
+      },
     });
 
     /* Optional: keep only the 5 newest snapshots per market */
@@ -1484,6 +1690,11 @@ export class Engine {
         fills.some((f) => f.price.toString() === x[0])
       );
       const updatedAsk = depth.asks.find((x) => x[0] === priceStr);
+      
+      // If no fills but we have a resting ask, include it
+      if (fills.length === 0 && updatedAsk) {
+        affectedPrices.add(priceStr);
+      }
       for (const price of affectedPrices) {
         const bidStillExists = depth.bids.some(([p]) => p === price);
         if (!bidStillExists) {
@@ -1518,9 +1729,11 @@ export class Engine {
   /**
    * Publish trades to WS and aggregator
    */
-  public publishWsTrades(fills: Fill[], market: string, userId: string) {
+  public publishWsTrades(fills: Fill[], market: string, userId: string, takerSide: "buy" | "sell") {
     for (const fill of fills) {
-      const isBuyerMaker = fill.makerUserId === userId;
+      // If taker is buying, maker was selling (isBuyerMaker = false)
+      // If taker is selling, maker was buying (isBuyerMaker = true)
+      const isBuyerMaker = takerSide === "sell";
       RedisManager.getInstance().publishMessage(`trade@${market}`, {
         stream: `trade@${market}`,
         data: {
