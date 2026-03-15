@@ -1466,11 +1466,10 @@ export class Engine {
       // If taker is buying, maker was selling (isBuyerMaker = false)
       const isBuyerMaker = takerSide === "sell";
       const tradeEvent: Event = {
-        id: fill.tradeId.toString(),
         type: "TRADE_EXECUTED",
         data: {
           market,
-          id: fill.tradeId.toString(),
+          tradeId: fill.tradeId,
           isBuyerMaker,
           price: fill.price.toString(),
           quantity: fill.quantity.toString(),
