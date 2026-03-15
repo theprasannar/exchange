@@ -103,4 +103,12 @@ export type MessageToAPI =
       payload: {
         message: string;
       };
+    }
+  | {
+      type: "ORDER_DUPLICATE";
+      payload: {
+        message: string;
+        entryId: string;
+        messageType: string;
+      };
     };

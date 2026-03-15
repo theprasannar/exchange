@@ -71,11 +71,11 @@ export const subscribeKlines = (market : string, interval: string) => (dispatch 
         //convert the data into formate
         const kline : Candle = {
             close : klineData.c,
-            endTime : klineData.w,
+            endTime : klineData.eT,
             high : klineData.h,
             low : klineData.l,
             open : klineData.o,
-            startTime : klineData.s, 
+            startTime : klineData.sT,
             trades : klineData.t,
             volume : klineData.v
         }

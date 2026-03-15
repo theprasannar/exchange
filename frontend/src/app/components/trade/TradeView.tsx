@@ -51,7 +51,7 @@ export function TradeView({ market }: { market: string }) {
         high: parseFloat(atomicToUsdc(BigInt(c.high))),
         low: parseFloat(atomicToUsdc(BigInt(c.low))),
         close: parseFloat(atomicToUsdc(BigInt(c.close))),
-        timestamp: new Date(c.endTime),
+        timestamp: new Date(c.startTime),
       }))
       // Ensure ascending time order
       .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
