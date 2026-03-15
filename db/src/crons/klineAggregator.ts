@@ -23,6 +23,7 @@ const INTERVAL_CONFIG: { interval: string; durationMinutes: number }[] = [
 
 const MARKETS = ["BTC_USDC"];
 async function main() {
+  console.log("🚀 Starting Kline Aggregator...");
   while (true) {
     try {
       for (const market of MARKETS) {
@@ -31,7 +32,7 @@ async function main() {
         }
       }
       // ✅ Wait before the next aggregation run (production: 10s - 60s)
-      await setTimeout(() => {}, 10000);
+      await new Promise(r => setTimeout(r, 10000));
     } catch (err) {
       console.error("❌ Error in aggregator loop:", err);
       await setTimeout(() => {}, 5000);
@@ -191,7 +192,7 @@ async function updateAggregatorState(
   });
 }
 
-main().catch((err) => {
+main().then(() => {console.log("Kline Aggregator started successfully");}).catch((err) => {
   console.error("❌ Fatal error in Kline Aggregator:", err);
   process.exit(1);
 });
