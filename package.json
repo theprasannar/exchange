@@ -6,7 +6,8 @@
     "api",
     "db",
     "engine",
-    "ws"
+    "ws",
+    "frontend"
   ],
   "scripts": {
     "build": "npm run --workspace=db build && npm run --workspace=engine build && npm run --workspace=api build && npm run --workspace=ws build",
