@@ -2,9 +2,23 @@
   "name": "exchange-monorepo",
   "private": true,
   "version": "1.0.0",
-  "workspaces": ["api", "db", "engine", "ws"],
-
+  "workspaces": [
+    "api",
+    "db",
+    "engine",
+    "ws"
+  ],
   "scripts": {
-    "build": "npm run --workspace=db build && npm run --workspace=engine build && npm run --workspace=api build && npm run --workspace=ws build"
+    "build": "npm run --workspace=db build && npm run --workspace=engine build && npm run --workspace=api build && npm run --workspace=ws build",
+    "test": "vitest",
+    "test:run": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:watch": "vitest --watch",
+    "test:ui": "vitest --ui"
+  },
+  "devDependencies": {
+    "@vitest/coverage-v8": "^1.6.1",
+    "@vitest/ui": "^1.6.1",
+    "vitest": "^1.6.1"
   }
 }
