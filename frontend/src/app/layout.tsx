@@ -5,6 +5,7 @@ import { Appbar } from "../app/components/trade/Appbar";
 import { Providers } from "./provider";
 import { Toaster } from "react-hot-toast";
 import { AuthProvider } from "../context/AuthContext";
+import { WakeServices } from "./components/core/WakeServices";
 import Head from "next/head";
 
 const inter = Inter({ subsets: ["latin"] });
@@ -27,6 +28,7 @@ export default function RootLayout({
       <body className={inter.className}>
         <Providers>
           <AuthProvider>
+            <WakeServices />
             <Appbar />
             {children}
             <Toaster position="top-right" reverseOrder={false} />
