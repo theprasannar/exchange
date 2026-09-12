@@ -26,18 +26,6 @@ const DELAY_BEFORE_ACK_MS = Number(process.env.CRASH_TEST_DELAY_BEFORE_ACK_MS ??
 
 // --- helpers ----------------------------------------------------------------
 
-async function waitForRedisReady(client: ReturnType<typeof createClient>) {
-  while (true) {
-    try {
-      const role = await client.sendCommand<string[]>(["ROLE"]);
-      if (Array.isArray(role) && role[0] === "master") break;
-    } catch {
-      /* ignore until Redis is ready */
-    }
-    await new Promise((r) => setTimeout(r, 500));
-  }
-}
-
 /**
  * Claim orphaned messages from dead consumers.
  * This ensures messages from crashed consumers are not lost.
@@ -105,8 +93,6 @@ async function main(): Promise<void> {
 
   await redisClient.connect();
   console.log("🔌  Engine connected to Redis");
-
-  await waitForRedisReady(redisClient);
 
   // ensure consumer‑group exists (idempotent)
   await redisClient
