@@ -1,0 +1,104 @@
+services:
+  # REST API — Express, talks to Postgres (via Prisma) + Redis
+  - type: web
+    name: exchange-api
+    runtime: node
+    plan: free
+    rootDir: .
+    buildCommand: npm install && npm run build --workspace=db && npm run build --workspace=api && npm run prisma:deploy --workspace=db
+    startCommand: npm run start --workspace=api
+    healthCheckPath: /health
+    envVars:
+      - key: PORT
+        value: 4000
+      - key: DATABASE_URL
+        sync: false
+      - key: SHADOW_DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+
+  # Matching engine — Redis Streams consumer, no real HTTP API of its own.
+  # Deployed as a "web" service (not a worker) because Render's free tier
+  # has no free background-worker instance; index.ts opens a tiny health
+  # listener on $PORT just to satisfy that.
+  - type: web
+    name: exchange-engine
+    runtime: node
+    plan: free
+    rootDir: .
+    buildCommand: npm install && npm run build --workspace=db && npm run build --workspace=engine
+    startCommand: npm run start --workspace=engine
+    envVars:
+      - key: PORT
+        value: 4002
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+
+  # WebSocket server — pushes orderbook/trade updates to the frontend
+  - type: web
+    name: exchange-ws
+    runtime: node
+    plan: free
+    rootDir: .
+    buildCommand: npm install && npm run build --workspace=ws
+    startCommand: npm run start --workspace=ws
+    envVars:
+      - key: PORT
+        value: 4001
+      - key: REDIS_URL
+        sync: false
+
+  # DB processor — consumes the engine's event streams and persists
+  # orders/trades/balances to Postgres. Without this running, nothing the
+  # engine does ever reaches the database.
+  - type: web
+    name: exchange-db-processor
+    runtime: node
+    plan: free
+    rootDir: .
+    buildCommand: npm install && npm run build --workspace=db
+    startCommand: npm run start:db-processor --workspace=db
+    envVars:
+      - key: PORT
+        value: 4003
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+
+  # DLQ processor — retries events that failed in exchange-db-processor
+  # instead of losing them silently.
+  - type: web
+    name: exchange-dlq-processor
+    runtime: node
+    plan: free
+    rootDir: .
+    buildCommand: npm install && npm run build --workspace=db
+    startCommand: npm run start:dlq-processor --workspace=db
+    envVars:
+      - key: PORT
+        value: 4004
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        sync: false
+
+  # Kline aggregator — rolls trades up into 1m/5m/15m/.../1w candles for the
+  # frontend's chart. Without this, the chart stays empty.
+  - type: web
+    name: exchange-kline-aggregator
+    runtime: node
+    plan: free
+    rootDir: .
+    buildCommand: npm install && npm run build --workspace=db
+    startCommand: npm run start:kline-aggregator --workspace=db
+    envVars:
+      - key: PORT
+        value: 4005
+      - key: DATABASE_URL
+        sync: false

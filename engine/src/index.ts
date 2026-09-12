@@ -1,6 +1,20 @@
 import "dotenv/config";
+import * as http from "http";
 import { createClient } from "redis";
 import { Engine } from "./trade/engine";
+
+// Render's free tier only offers "web service" instances (background workers
+// require a paid plan), and a web service must bind to $PORT and answer
+// health checks. The engine itself has no HTTP API — this listener exists
+// solely to satisfy that requirement so it can run as a free web service.
+const HEALTH_PORT = process.env.PORT;
+if (HEALTH_PORT) {
+  http
+    .createServer((_req, res) => res.writeHead(200).end("ok"))
+    .listen(Number(HEALTH_PORT), () => {
+      console.log(`🩺 Health check listener on port ${HEALTH_PORT}`);
+    });
+}
 
 // --- configuration ----------------------------------------------------------
 

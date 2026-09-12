@@ -8,7 +8,10 @@
     "prepare": "prisma generate && tsc -p tsconfig.json",
     "build": "prisma generate && tsc -p tsconfig.json",
     "prisma:deploy": "prisma migrate deploy",
-    "dlq": "npx ts-node src/dlqProcessor.ts"
+    "dlq": "npx ts-node src/dlqProcessor.ts",
+    "start:db-processor": "node dist/dbProcessor.js",
+    "start:dlq-processor": "node dist/dlqProcessor.js",
+    "start:kline-aggregator": "node dist/crons/klineAggregator.js"
   },
   "keywords": [],
   "author": "",

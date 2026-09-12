@@ -14,7 +14,7 @@ process.on('uncaughtException', (err) => {
   process.exit(1);
 });
 
-const PORT = 4001;
+const PORT = process.env.PORT || 4001;
 
 const server = http.createServer();
 

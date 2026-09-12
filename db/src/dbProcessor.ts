@@ -1,8 +1,21 @@
 //@ts-nocheck
+import * as http from "http";
 import { createClient } from "redis";
 import { Prisma, PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
+
+// Render's free tier only offers "web service" instances (background workers
+// require a paid plan), and a web service must bind to $PORT and answer
+// health checks. This process has no HTTP API — this listener exists solely
+// to satisfy that requirement so it can run as a free web service.
+if (process.env.PORT) {
+  http
+    .createServer((_req, res) => res.writeHead(200).end("ok"))
+    .listen(Number(process.env.PORT), () => {
+      console.log(`🩺 Health check listener on port ${process.env.PORT}`);
+    });
+}
 
 // Unhandled promise rejection handler — crash to avoid running in a corrupt state
 process.on('unhandledRejection', (reason, promise) => {
